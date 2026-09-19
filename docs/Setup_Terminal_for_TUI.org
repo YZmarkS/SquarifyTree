@@ -1,0 +1,49 @@
+#+TITLE: Setup Terminal for TUI
+
+* "Terminal Attributes"
+
+Provided by ~termios.h~, ~struct termios~ is a struct that contains at least the following fields:
+#+begin_src c
+  struct termios {
+    tcflag_t c_iflag;      /* input modes */
+    tcflag_t c_oflag;      /* output modes */
+    tcflag_t c_cflag;      /* control modes */
+    tcflag_t c_lflag;      /* local modes */
+    cc_t     c_cc[NCCS];   /* special characters */
+  };
+#+end_src
+
+This struct is used to set the attribute of the current terminal.
+
+
+* Terminal Modes (Canonical & Noncanonical)
+
+There are two modes the terminal can be in: /canonical/ or /noncanonical/. A similar pair of terms are /cooked/ and /raw/ mode.
+
+By default, terminal is in canonical mode. This has great implication on user input processing [fn:1].
+- Until a line delimiter (NL, EOL, EOL2, EOF at beginning of a line) is typed, all keystrokes are buffered.
+- ~read()~ will read until either a line delimiter (inclusive) or the requested number of bytes is reached, whichever comes first.
+- If a line is longer than 4096, input are truncated to the first 4095 characters that are not terminating newline character. Input process continues, but won't be recorded.
+
+The mode is controlled by the ~c_lflag~ of the ~termios~ struct. The ~ICANON~ chooses between the two modes:
+- ~c_lflag & ICANON == ICANON~ :: Terminal in canonical mode
+- ~c_lflag & ICANON == 0~ :: Terminal in noncanonical mode
+
+The latter is likely what a TUI want.
+
+* Echo 
+
+* Signal Sending Input
+
+ISIG :: ctrlc sigint, ctrlz sigtstp
+IXON :: ctrls, ctrlq
+
+
+  
+* Raw Mode (Shortcut)
+
+~cfmakeraw~ creates a terminal attribute that is basically raw mode
+
+* Footnotes
+
+[fn:1] Details are in ~man termios~
