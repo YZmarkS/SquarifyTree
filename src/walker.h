@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <libgen.h>
 #include <string.h>
+#include <dirent.h>
 
 typedef enum PathTypeEnum {
   REG_TYPE,
@@ -30,11 +31,16 @@ struct DirDetail {
 struct SimpleInode {
   PathType type;
   char * path;
-  off64_t size;
+  off_t size;
   union {
     RegDetail reg_detail;
     DirDetail dir_detail;
   } detail;
+  SimpleInode * next;
 };
+
+void printInode(SimpleInode * inode, int depth);
+SimpleInode * parseReg(const char * path);
+SimpleInode * parseDir(const char * path);
 
 #endif
