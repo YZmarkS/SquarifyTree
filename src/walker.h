@@ -1,7 +1,9 @@
 #ifndef _WALKER
 #define _WALKER
 
+#ifndef _LARGEFILE64_SOURCE
 #define _LARGEFILE64_SOURCE
+#endif
 
 #include <stdlib.h>
 #include <stdio.h>

@@ -2,8 +2,9 @@
 
 int main(int argc, char* argv[]) {
 
-  SimpleInode * inode = parseDir("..");
+  SimpleInode * inode = parseDir(".");
   printInode(inode, 0);
+  fill(inode->detail.dir_detail.children, NULL);
   /* char c; */
   /* terminalSetup(); */
   /* while (1) { */
@@ -16,5 +17,8 @@ int main(int argc, char* argv[]) {
   /*   } */
   /*   if (c == 'q') break; */
   /* } */
+  printf("\u2597\u2500\u2596\n");
+  printf("\u2502 \u2502\n");
+
   return 0;
 }
