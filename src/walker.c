@@ -1,25 +1,11 @@
 #include "walker.h"
 
-void printInode(SimpleInode * inode, int depth) {
-  for (int i = 0; i < depth; i++) {
-    printf("  ");
-  }
-  printf("%s\n", basename(inode->path));
-  if (inode->type == DIR_TYPE) {
-    SimpleInode * children = inode->detail.dir_detail.children;
-    while (children != NULL) {
-      printInode(children, depth + 1);
-      children = children->next;
-    }
-  }
-}
-
-SimpleInode * parseReg(const char * path /* borrow */) {
+SimpleInode* parseReg(const char * path /* borrow */) {
   struct stat statbuf;
   int stat_result = stat(path, &statbuf);
   if (stat_result != 0) { printf("Cannot access inode\n"); exit(1); }
 
-  SimpleInode * reg_inode = (SimpleInode *)malloc(sizeof(SimpleInode));
+  SimpleInode * reg_inode = (SimpleInode *)calloc(1, sizeof(SimpleInode));
   if (reg_inode == NULL) { printf("Cannot allocate memory for file\n"); exit(1); }
 
   reg_inode->type = REG_TYPE;
@@ -30,18 +16,18 @@ SimpleInode * parseReg(const char * path /* borrow */) {
   return reg_inode;
 }
 
-SimpleInode * parseDir(const char * path /* borrow */) {
-  SimpleInode * dir_inode = (SimpleInode *)malloc(sizeof(SimpleInode));
+SimpleInode* parseDir(const char * path /* borrow */) {
+  SimpleInode* dir_inode = (SimpleInode *)calloc(1, sizeof(SimpleInode));
   if (dir_inode == NULL) { printf("Cannot allocate memory for directory\n"); exit(1); }
   dir_inode->type = DIR_TYPE;
   dir_inode->path = strdup(path);
   dir_inode->size = 0;
   dir_inode->next = NULL;
 
-  DIR * dir_stream = opendir(path);
+  DIR* dir_stream = opendir(path);
   if (dir_stream == NULL) { printf("Cannot open directory\n"); exit(1); }
 
-  SimpleInode * children = NULL;
+  SimpleInode* children = NULL;
 
   struct dirent* dir_entry = readdir(dir_stream);
   while (dir_entry != NULL) {
@@ -57,7 +43,7 @@ SimpleInode * parseDir(const char * path /* borrow */) {
     int curr_path_len = strlen(path);
     int entry_name_len = strlen(dir_entry->d_name);
     int concat_len = curr_path_len + 1 + entry_name_len;
-    char* new_path = (char*)malloc(sizeof(char) * (concat_len + 1));
+    char* new_path = (char*)calloc(concat_len + 1, sizeof(char));
     strcpy(new_path, path);
     strcat(new_path, "/");
     strcat(new_path, dir_entry->d_name);
@@ -86,7 +72,7 @@ SimpleInode * parseDir(const char * path /* borrow */) {
     dir_entry = readdir(dir_stream);
   }
 
-  dir_inode->detail.dir_detail.children = children;
+  dir_inode->detail.dir_detail.children = sortList(children);
 
   return dir_inode;
 }
