@@ -5,6 +5,7 @@
 #define _LARGEFILE64_SOURCE
 #endif
 
+#include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
@@ -13,6 +14,7 @@
 #include <math.h>
 #include <limits.h>
 #include "simple_inode.h"
+#include "algo.h"
 
 #define LANDSCAPE_SPLIT_THRESHOLD 2
 #define PORTRAIT_SPLIT_THRESHOLD 4
@@ -47,7 +49,7 @@ struct Cell {
 };
 
 struct Column {
-  int left_width;
+  int width;
   Cell* cells;
   long num_cells;
 };

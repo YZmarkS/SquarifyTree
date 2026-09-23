@@ -1,40 +1,56 @@
 #include "squarify.h"
 
-int leftColWidthLandscape(SimpleInode* inodes, long first_n, off_t sum, int width) {
-  off_t first_n_size = sumFirstNInodeSize(inodes, first_n);
-  double ratio = ((double)first_n_size) / ((double)sum);
-  double precise_width = ratio * ((double)width);
+int widthByRatioLandscape(off_t size, off_t total_size, int width) {
+  double precise_width = ((double) width) * ((double) size) / ((double) total_size);
   int converted_width = round(precise_width);
   return (converted_width > 0) ? converted_width : 1;
 }
 
-int rightColWidthLandscape(SimpleInode* inodes, long first_n, off_t sum, int width) {
-  return width - rightColWidthLandscape(inodes, first_n, sum, width);
-}
-
-int truncToEven(int n) {
+int truncToEven(double f) {
+  int n = (int) f;
   return (n % 2 == 0) ? n : n - 1;
 }
 
-int shortestHeightInColLandscape(SimpleInode* inodes, long first_n, int height) {
+int* calcHeightsLandscape(SimpleInode* inodes, long first_n, int total_height) {
+  assert(total_height % 2 == 0);
   off_t first_n_size = sumFirstNInodeSize(inodes, first_n);
-  int min_height = INT_MAX;
+  int* heights = (int*)calloc(first_n, sizeof(int));
+  int remaining_height = total_height;
   SimpleInode* inode = inodes;
-  for (int i = 0; i < first_n; i++) {
-    double ratio = ((double)inode->size) / ((double)first_n_size);
-    double precise_height = ratio * ((double)height);
-    int height = truncToEven((int)precise_height);
-    min_height = height;
+  for (long i = 0; i < first_n; i++) {
+    double precise_height = total_height * ((double)inode->size) / ((double)first_n_size);
+    int height = truncToEven(precise_height);
+
+    heights[i] = height;
+    remaining_height -= height;
   }
-  return height;
+  int i = 0;
+  while (remaining_height > 0) {
+    heights[i] += 2;
+    remaining_height -= 2;
+    i++;
+  }
+  assert(remaining_height == 0);
+  return heights;
 }
 
-double worst // TODO
+double worstRatio(int heights[], long length, int width) {
+  double width_over_height = ((double) width) / ((double) heights[0]);
+  double height_over_width = ((double) heights[0]) / ((double) width);
+  double worst = (width_over_height > height_over_width) : width_over_height ? height_over_width;
+  for (long i = 1; i < length; i++) {
+    width_over_height = ((double) width) / ((double) heights[i]);
+    height_over_width = ((double) heights[i]) / ((double) width);
+    double ratio = (width_over_height > height_over_width) : width_over_height ? height_over_width;
+    worst = (ratio > worst) ? ratio : worst;
+  }
+  return worst;
+}
 
-Column calcColumnLandscape // TODO
+// TODO
+/* double worst  */
 
 Rectangle* fillLandscape(SimpleInode* remains, int width, int height) {
-  const int
   Rectangle* new_rectangle = (Rectangle*)calloc(1, sizeof(Rectangle));
   new_rectangle->width = width;
   new_rectangle->height = height;
@@ -46,8 +62,15 @@ Rectangle* fillLandscape(SimpleInode* remains, int width, int height) {
     return new_rectangle;
   }
 
-  off_t total = sumInodeListSize(remains);
+  off_t total_size = sumInodeListSize(remains);
+
   long batch_size = 1;
+  off_t curr_size = remains->size;
+
+  int left_col_width = widthByRatio(curr_size, total_size, width);
+  int right_col_width = width - left_col_width;
+  int heights[] = calcHeightsLandscape(remains, batch_size, height);
+
   SimpleInode* candidate = remains->next;
 
   /** 1. Check the current batch is not going to cause the right col to be squished
@@ -59,16 +82,48 @@ Rectangle* fillLandscape(SimpleInode* remains, int width, int height) {
       4. Check aspect ratio is not getting worse
 
    */
-  if (rightColWidthLandscape(remains, batch_size, total, width) >= LANDSCAPE_RIGHT_COL_MIN_WIDTH) {
-    while (candidate != NULL
-	   && rightColWidthLandscape(remains, batch_size + 1, total, width) >= LANDSCAPE_RIGHT_COL_MIN_WIDTH
-	   && shortestHeightInColLandscape(remains, batch_size + 1, height) > 0
-	   // TODO
-	   ) {
+  if (LANDSCAPE_RIGHT_COL_MIN_WIDTH <= right_col_width) { /* Current batch is not going to cause squeeze  */
+    while (candidate != NULL) {	                          /* There is a next element */
+      int new_left_col_width = widthByRatio(curr_size + candidate->size, total_size, width);
+      int new_right_col_width = width - new_left_col_width;
+      long new_batch_size = batch_size + 1;
+      int new_heights[] = calcHeightsLandscape(remains, new_batch_size, height);
+
+      if (new_right_col_width < LANDSCAPE_RIGHT_COL_MIN_WIDTH /* New batch is not going to cause squeeze */
+	  || minIntArray(new_heights, new_batch_size) == 0    /* No cell is too short */
+	  || worstRatio(new_heights, new_batch_size, left_col_width) <= worstRatio(heights, batch_size, new_left_col_width) /* ratio does not get worse */
+	 ) {
+	free(new_heights);
+	break;
+      }
       batch_size++;
+      curr_size = new_size;
       candidate = candidate->next;
+      free(heights);
+      heights = new_heights;
     }
   }
+
+  if (right_col_width < LANDSCAPE_RIGHT_COL_MIN_WIDTH) {
+    right_col_width = 1;
+    left_col_width = width - right_col_width;
+  }
+
+  Column left;
+  left.width = left_col_width;
+  left.cells = (Cell*)calloc(batch_size, sizeof(Cell));
+  left.num_cells = batch_size;
+
+  SimpleInode* curr_inode = remains;
+  for (long i = 0; i < batch_size; i++) {
+    left.cells[i].inode = curr_inode;
+    left.cells[i].height = heights[i];
+    curr_inode = curr_inode->next;
+  }
+
+  // TODO calculate remaining rectangle
+
+  free(heights);
 
 }
 
