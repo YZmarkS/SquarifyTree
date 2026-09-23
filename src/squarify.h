@@ -37,9 +37,9 @@ typedef struct Rectangle Rectangle;
 
 typedef struct Column Column;
 
-typedef struct SplitDetail;
+typedef struct SplitDetail SplitDetail;
 
-typedef struct WholeDetail;
+typedef struct WholeDetail WholeDetail;
 
 typedef struct Cell Cell;
 
@@ -75,12 +75,8 @@ struct Rectangle {
   } detail;
 };
 
-struct CellList {
-  SimpleInode * cell;
-  CellList * next;
-};
+Rectangle* fill(SimpleInode * remains, int width, int height, Orientation orientation);
 
-
-void fill(SimpleInode * remaining, Rectangle* rectangle);
+void validateRectangle(Rectangle* rectangle, int indent);
 
 #endif

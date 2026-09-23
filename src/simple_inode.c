@@ -4,7 +4,7 @@ void printInode(SimpleInode inode[], int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
-  printf("%s\n", basename(inode->path));
+  printf("%s, %ld\n", basename(inode->path), inode->size);
   if (inode->type == DIR_TYPE) {
     SimpleInode * children = inode->detail.dir_detail.children;
     while (children != NULL) {
@@ -37,7 +37,7 @@ SimpleInode* sliceToList(InodePtrSlice slice) {
   SimpleInode* head = NULL;
   for (long i = length - 1; i >= 0; i--) {
     slice.content[i]->next = head;
-    head = slice.content[i]->next;
+    head = slice.content[i];
   }
   return head;
 }
