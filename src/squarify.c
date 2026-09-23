@@ -14,8 +14,9 @@ int widthBySizePortrait(off_t size, off_t total_size, int width) {
   if (rounded_width % 2 == 0) {
     converted_width = rounded_width;
   } else {
-    converted_width = (((double)rounded_width) <= precise_width) ? rounded_width + 1 : rounded_width;
+    converted_width = (((double)rounded_width) <= precise_width) ? rounded_width + 1 : rounded_width - 1;
   }
+  assert(converted_width % 2 == 0);
   return (converted_width >= 2) ? converted_width : 2;
 }
 

@@ -1,6 +1,13 @@
 #include "simple_inode.h"
 
-void printInode(SimpleInode inode[], int depth) {
+void printInodesArray(SimpleInode* inodes[], long length) {
+  for (long i = 0; i < length; i++) {
+    printf("%ld ", inodes[i]->size);
+  }
+  printf("\n");
+}
+
+void printInode(SimpleInode* inode, int depth) {
   for (int i = 0; i < depth; i++) {
     printf("  ");
   }
@@ -42,7 +49,9 @@ SimpleInode* sliceToList(InodePtrSlice slice) {
   return head;
 }
 
-void quicksort(SimpleInode* inodes[], long lo, long hi) {
+void quicksort(SimpleInode* inodes[], long lo, long hi, long total) {
+  printf("===\n");
+  printInodesArray(inodes, total);
   if (hi <= lo) {
     return;
   }
@@ -71,14 +80,17 @@ void quicksort(SimpleInode* inodes[], long lo, long hi) {
   inodes[hi] = i_inode;
   inodes[i] = pivot_inode;
 
-  quicksort(inodes, lo, j - 1);
-  quicksort(inodes, j + 1, hi);
+  printf("i: %ld, hi: %ld\n", i, hi);
+  printInodesArray(inodes, total);
+
+  quicksort(inodes, lo, i - 1, total);
+  quicksort(inodes, i + 1, hi, total);
 }
 
 SimpleInode* sortList(SimpleInode* list) {
   SimpleInode* result = NULL;
   InodePtrSlice slice = listToSlice(list);
-  quicksort(slice.content, 0, slice.length - 1);
+  quicksort(slice.content, 0, slice.length - 1, slice.length);
   result = sliceToList(slice);
   free(slice.content);
   return result;
