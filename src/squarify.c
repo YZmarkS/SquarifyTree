@@ -1,5 +1,36 @@
 #include "squarify.h"
 
+int calcStackThickness(off_t size, off_t total_size, int thickness, Direction direction) {
+  bool is_vertical = (direction == VERTICAL) ? true : false;
+  assert(is_vertical || thickness % 2 == 0); /* If the stack is vertical */
+
+  double precise_thickness = ((double) width) * ((double) size) / ((double) total_size);
+  int rouned_thickness = round(precise_width);
+
+  int corrected_thickness = -1
+  if (is_vertical) {
+    corrected_thickness =
+    (rounded_thickness >= COL_MIN_WIDTH) ?
+    rounded_thickness :
+    COL_MIN_WIDTH;
+  } else { /* is row */
+    if (rounded_thickness % 2 == 0) {
+      corrected_thickness = rounded_thickness;
+    } else {
+      corrected_thickness =
+	((double)rounded_thickness <= precise_thickness) ?
+	rounded_thickness + 1 :
+	rounded_thickness - 1;
+    }
+    corrected_thickness =
+      (corrected_thichness >= ROW_MIN_HEIGHT) ?
+      correctness_thickness :
+      ROW_MIN_HEIGHT;
+  }
+   assert(is_vertical || thickness % 2 == 0);
+  return corrected_thickness;
+}
+
 int widthBySizeLandscape(off_t size, off_t total_size, int width) {
   double precise_width = ((double) width) * ((double) size) / ((double) total_size);
   int converted_width = round(precise_width);
@@ -50,7 +81,8 @@ int* calcHeightsLandscape(SimpleInode* inodes, long first_n, int total_height) {
   return heights;
 }
 
-int* calcHeightsPortrait(SimpleInode* inodes, long first_n, int total_height) {
+int* calcStack(SimpleInode* inodes, long first_n, int stack_height, StackDirection direction) {
+  bool is_row = (direction == ROW) ? true : false;
   off_t first_n_size = sumFirstNInodesSize(inodes, first_n);
   int* heights = (int*)calloc(first_n, sizeof(int));
   int remaining_height = total_height;
@@ -87,7 +119,8 @@ double worstRatio(int heights[], long length, int width) {
 }
 
 Rectangle* fill(SimpleInode* remains, int width, int height, Orientation orientation) {
-  printf("Width: %d, Height: %d, Orientation: %s\n", width, height, orientation == LANDSCAPE ? "Landscape" : "Portrait");
+  bool is_landscape = width > height ? true : false;
+  printf("Width: %d, Height: %d, Orientation: %s\n", width, height, is_landscape ? "Landscape" : "Portrait");
 
   int threshold = (orientation == LANDSCAPE) ? LANDSCAPE_SPLIT_THRESHOLD : PORTRAIT_SPLIT_THRESHOLD;
   int right_col_min_width = (orientation == LANDSCAPE) ? LANDSCAPE_RIGHT_COL_MIN_WIDTH : PORTRAIT_RIGHT_COL_MIN_WIDTH;
@@ -191,86 +224,4 @@ Rectangle* fill(SimpleInode* remains, int width, int height, Orientation orienta
   new_rectangle->type = SPLIT;
   new_rectangle->detail.split_detail = split_detail;
   return new_rectangle;
-}
-
-void padding(int n) {
-  for (int i = 0 ; i < n; i++) {
-    printf("  ");
-  }
-}
-
-void validateRectangle(Rectangle* rectangle, int indent) {
-  bool is_landscape = rectangle->orientation == LANDSCAPE;
-  int x = is_landscape ? rectangle->width : rectangle->height;
-  int y = is_landscape ? rectangle->height : rectangle->width;
-
-  padding(indent);
-  printf("Expected X: %d    Expected Y: %d    Orientation: %s\n",
-	 x,
-	 y,
-	 rectangle->orientation == LANDSCAPE ? "Landscape" : "Portrait");
-
-  if (rectangle->type == SPLIT) {
-    if (is_landscape) {
-      // Check column height sum up to y
-      int total_y = 0;
-      for (long i = 0; i < rectangle->detail.split_detail.left.num_cells; i++) {
-	Cell cell = rectangle->detail.split_detail.left.cells[i];
-	padding(indent);
-	printf("%s height: %d\n", basename(cell.inode->path), cell.height);
-	total_y += cell.height;
-      }
-      padding(indent);
-      printf("Column Summed to: %d    Validated: %s\n", total_y, total_y == y ? "True" : "False <==");
-
-      // Check right side height matches
-      Rectangle* right = rectangle->detail.split_detail.right;
-      bool right_is_landscape = right->orientation == LANDSCAPE;
-      int right_x = right_is_landscape ? right->width : right->height;
-      int right_y = right_is_landscape ? right->height : right->width;
-
-      padding(indent);
-      printf("Right side height: %d    Validated: %s\n", right_y, right_y == y ? "True" : "False <==");
-
-      // Check two sides sum up to x
-      padding(indent);
-      int total_x = rectangle->detail.split_detail.left.width + right_x;
-      printf("Width Summed to: %d    Validated: %s\n", total_x, total_x == x ? "True" : "False <==");
-
-    } else { // is portrait
-
-      int total_x = 0;
-      for (long i = 0; i < rectangle->detail.split_detail.left.num_cells; i++) {
-	Cell cell = rectangle->detail.split_detail.left.cells[i];
-	padding(indent);
-	printf("%s width: %d\n", basename(cell.inode->path), cell.height);
-	total_x += cell.height;
-      }
-      padding(indent);
-      printf("Row Summed to: %d    Validated: %s\n", total_x, total_x == x ? "True" : "False <==");
-
-      // Check right side height matches
-      Rectangle* bottom = rectangle->detail.split_detail.right;
-      bool bottom_is_landscape = bottom->orientation == LANDSCAPE;
-      int bottom_x = bottom_is_landscape ? bottom->width : bottom->height;
-      int bottom_y = bottom_is_landscape ? bottom->height : bottom->width;
-
-      padding(indent);
-      printf("Bottom width: %d    Validated: %s\n", bottom_x, bottom_x == x ? "True" : "False <==");
-
-      // Check two sides sum up to x
-      padding(indent);
-      int total_y = rectangle->detail.split_detail.left.width + bottom_y;
-      printf("Height Summed to: %d    Validated: %s\n", total_y, total_y == y ? "True" : "False <==");
-    }
-
-    validateRectangle(rectangle->detail.split_detail.right, indent + 1);
-  } else if (rectangle->type == WHOLE) {
-    SimpleInode* inode = rectangle->detail.whole_detail.remains;
-    while (inode != NULL) {
-      padding(indent);
-      printf("%s\n", basename(inode->path));
-      inode = inode->next;
-    }
-  }
 }

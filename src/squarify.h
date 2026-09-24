@@ -16,12 +16,16 @@
 #include "simple_inode.h"
 #include "algo.h"
 
-#define LANDSCAPE_SPLIT_THRESHOLD 2
-#define PORTRAIT_SPLIT_THRESHOLD 4
+#define LANDSCAPE_SPLIT_THRESHOLD 4
+#define PORTRAIT_SPLIT_THRESHOLD 8
 
-#define LANDSCAPE_RIGHT_COL_MIN_WIDTH 1
-#define PORTRAIT_RIGHT_COL_MIN_WIDTH 2
+#define COL_MIN_WIDTH 2
+#define ROW_MIN_HEIGHT 4
 
+typedef enum StackDirection {
+  VERTICAL,
+  HORIZONTAL
+} StackDirection;
 
 typedef enum RectangleType {
   SPLIT,
@@ -35,7 +39,7 @@ typedef enum Orientation {
 
 typedef struct Rectangle Rectangle;
 
-typedef struct Column Column;
+typedef struct Stack Stack;
 
 typedef struct SplitDetail SplitDetail;
 
@@ -45,18 +49,22 @@ typedef struct Cell Cell;
 
 struct Cell {
   SimpleInode* inode;
-  int height;
+  int length;
 };
 
-struct Column {
+struct Stack {
   int width;
   Cell* cells;
   long num_cells;
 };
 
 struct SplitDetail {
-  Column left;
-  Rectangle* right;
+  int stack_width;
+  long stack_size;
+  SimpleInode* inodes;
+  int* inode_heights;
+
+  Rectangle* rest;
 };
 
 struct WholeDetail {
@@ -66,7 +74,6 @@ struct WholeDetail {
 struct Rectangle {
   int width;			/* width */
   int height; 			/* height */
-  Orientation orientation;
 
   RectangleType type;
   union {
@@ -75,7 +82,7 @@ struct Rectangle {
   } detail;
 };
 
-Rectangle* fill(SimpleInode * remains, int width, int height, Orientation orientation);
+Rectangle* fill(SimpleInode * remains, int width, int height);
 
 void validateRectangle(Rectangle* rectangle, int indent);
 
