@@ -8,13 +8,13 @@ int main(int argc, char* argv[]) {
   Rectangle* rect = fill(inode->detail.dir_detail.children, 200, 100);
   debugRectangle(rect, 0);
 
-  uint32_t* matrix = (uint32_t*)calloc(200 * 51, sizeof(uint32_t));
+  uint32_t* matrix = (uint32_t*)calloc(201 * 51, sizeof(uint32_t));
 
-  clearMatrix(200, 51, matrix);
-  drawBoarder(200, 51, matrix);
-  printMatrix(200, 51, matrix);
-  renderRectangles(rect, 0, 0, 200, 51, matrix);
-  printMatrix(200, 51, matrix);
+  clearMatrix(201, 51, matrix);
+  drawBoarder(201, 51, matrix);
+  printMatrix(201, 51, matrix);
+  renderRectangles(rect, 0, 0, 201, 51, matrix);
+  printMatrix(201, 51, matrix);
 
 
   /* char c; */
