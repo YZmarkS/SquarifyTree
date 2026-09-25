@@ -5,8 +5,8 @@ int main(int argc, char* argv[]) {
   SimpleInode * inode = parseDir(".");
   printInode(inode, 0);
   printf("=====================\n");
-  Rectangle* rect = fill(inode->detail.dir_detail.children, 200, 120, LANDSCAPE);
-  validateRectangle(rect, 0);
+  Rectangle* rect = fill(inode->detail.dir_detail.children, 200, 100);
+  debugRectangle(rect, 0);
   /* char c; */
   /* terminalSetup(); */
   /* while (1) { */
