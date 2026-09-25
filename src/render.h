@@ -8,16 +8,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "simple_inode.h"
 #include "algo.h"
 #include "squarify.h"
 
-typedef struct Position;
+/* typedef struct Position; */
 
-struct Position {
-  int x;
-  int y;
-};
+/* struct Position { */
+/*   int x; */
+/*   int y; */
+/* }; */
 
 enum {
     hl = 0x2500, /* ─ */
@@ -33,11 +34,16 @@ enum {
     cr = 0x253C  /* ┼ */
 };
 
-enum {
-  HL = 0x
-};
+void clearMatrix(int mx, int my, uint32_t* matrix);
 
+void printMatrix(int mx, int my, uint32_t* matrix);
 
+void renderRectangles(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix);
 
+void renderLandscape(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix);
+
+  void renderPortrait(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix);
+
+void drawBoarder(int mx, int my, uint32_t* matrix);
 
 #endif

@@ -18,7 +18,7 @@ int roundByMethod(double d, RoundingMethod method) {
 }
 
 int calcStackThickness(off_t size, off_t total_size, int thickness_to_use, StackDirection direction) {
-  bool is_vertical = (direction == VERTICAL) ? true : false;
+  bool is_vertical = (direction == VERTICAL);
   bool is_horizontal = !is_vertical;
 
   // You like the law of excluded middle?
@@ -46,7 +46,7 @@ int truncToEven(double f) {
 }
 
 int* calcStack(SimpleInode* inodes, long n, int total_height, StackDirection direction) {
-  bool is_vertical = (direction == VERTICAL) ? true : false;
+  bool is_vertical = (direction == VERTICAL);
   assert(!is_vertical || total_height % 2 == 0);
 
   off_t total_size = sumFirstNInodesSize(inodes, n);
@@ -100,7 +100,7 @@ Rectangle* fill(SimpleInode* remains, int width, int height) {
   new_rectangle->width = width;
   new_rectangle->height = height;
 
-  bool is_landscape = width >= height ? true : false;
+  bool is_landscape = width >= height;
   /* printf("Width: %d, Height: %d, Orientation: %s\n", width, height, is_landscape ? "Landscape" : "Portrait"); */
 
   bool has_enough_space =
@@ -155,7 +155,9 @@ Rectangle* fill(SimpleInode* remains, int width, int height) {
       bool other_has_space =
 	candidate->next == NULL
 	|| other_min_thickness <= new_other_thickness;
-      bool no_layer_too_short = minIntArray(new_heights, new_stack_size) != 0;
+      bool no_layer_too_short =
+	minIntArray(new_heights, new_stack_size)
+	>= (is_landscape ? 4 : 2);
       bool worst_is_worse =
 	worstRatio(new_heights, new_stack_size, new_stack_thickness)
 	> worstRatio(heights, stack_size, stack_thickness);
