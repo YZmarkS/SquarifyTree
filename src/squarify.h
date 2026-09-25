@@ -22,6 +22,11 @@
 #define COL_MIN_WIDTH 2
 #define ROW_MIN_HEIGHT 4
 
+typedef enum RoundingMethod {
+  TO_INT,
+  TO_EVEN
+} RoundingMethod;
+
 typedef enum StackDirection {
   VERTICAL,
   HORIZONTAL
@@ -59,10 +64,10 @@ struct Stack {
 };
 
 struct SplitDetail {
-  int stack_width;
+  int stack_thickness;
+  SimpleInode** inodes;
+  int* heights;
   long stack_size;
-  SimpleInode* inodes;
-  int* inode_heights;
 
   Rectangle* rest;
 };
@@ -84,6 +89,6 @@ struct Rectangle {
 
 Rectangle* fill(SimpleInode * remains, int width, int height);
 
-void validateRectangle(Rectangle* rectangle, int indent);
+void debugRectangle(Rectangle* rectangle, int indent);
 
 #endif
