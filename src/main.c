@@ -5,14 +5,14 @@ int main(int argc, char* argv[]) {
   SimpleInode * inode = parseDir(".");
   printInode(inode, 0);
   printf("=====================\n");
-  Rectangle* rect = fill(inode->detail.dir_detail.children, 200, 100);
+  Rectangle* rect = fill(inode->detail.dir_detail.children, 200, 50);
   debugRectangle(rect, 0);
 
   uint32_t* matrix = (uint32_t*)calloc(201 * 51, sizeof(uint32_t));
 
   clearMatrix(201, 51, matrix);
   drawBoarder(201, 51, matrix);
-  printMatrix(201, 51, matrix);
+  /* printMatrix(201, 51, matrix); */
   renderRectangles(rect, 0, 0, 201, 51, matrix);
   printMatrix(201, 51, matrix);
 

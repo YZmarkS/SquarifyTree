@@ -118,7 +118,7 @@ void renderRectangles(Rectangle* rect, int x, int y, int mx, int my, uint32_t* m
     return;
   }
   if (rect->type == SPLIT) {
-    bool is_landscape = rect->width >= rect->height;
+    bool is_landscape = rect->width >= (rect->height * PIXEL_ASPECT_RATIO);
     if (is_landscape) {
       renderLandscape(rect, x, y, mx, my, matrix);
     } else {
@@ -128,32 +128,27 @@ void renderRectangles(Rectangle* rect, int x, int y, int mx, int my, uint32_t* m
 }
 
 void renderLandscape(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix) {
-  printf("Drawing a Landscape\n");
   SplitDetail split_detail = rect->detail.split_detail;
   int split_line_x = x + split_detail.stack_thickness;
   drawLineVertical(split_line_x, y, my - 1, mx, my, matrix);
 
   int total_height = 0;
-  for (long i = 0; i < split_detail.stack_size - 1; i++) {
-    int height = split_detail.heights[i];
-    assert(height % 2 == 0 && height >= 4);
-    total_height += (height / 2);
+  for (long i = 0; i < split_detail.stack_length - 1; i++) {
+    total_height += split_detail.heights[i];
     int layer_line_y = y + total_height;
     drawLineHorizontal(x, split_line_x, layer_line_y, mx, my, matrix);
   }
-  printf("%d\n", split_detail.heights[split_detail.stack_size - 1] / 2);
 
   renderRectangles(split_detail.rest, split_line_x, y, mx, my, matrix);
 }
 
 void renderPortrait(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix) {
-  printf("Drawing a Portrait\n");
   SplitDetail split_detail = rect->detail.split_detail;
-  int split_line_y = y + (split_detail.stack_thickness / 2);
+  int split_line_y = y + split_detail.stack_thickness;
   drawLineHorizontal(x, mx - 1, split_line_y, mx, my, matrix);
 
   int total_width = 0;
-  for (long i = 0; i < split_detail.stack_size - 1; i++) {
+  for (long i = 0; i < split_detail.stack_length - 1; i++) {
     total_width += split_detail.heights[i];
     int layer_line_x = x + total_width;
     drawLineVertical(layer_line_x, y, split_line_y, mx, my, matrix);

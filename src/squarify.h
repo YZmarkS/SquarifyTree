@@ -16,11 +16,11 @@
 #include "simple_inode.h"
 #include "algo.h"
 
-#define LANDSCAPE_SPLIT_THRESHOLD 4
-#define PORTRAIT_SPLIT_THRESHOLD 8
+#define PIXEL_ASPECT_RATIO 2
 
-#define COL_MIN_WIDTH 2
-#define ROW_MIN_HEIGHT 4
+#define SPLIT_THRESHOLD 4
+
+#define MIN_RESOLUTION 2
 
 typedef enum RoundingMethod {
   TO_INT,
@@ -67,7 +67,7 @@ struct SplitDetail {
   int stack_thickness;
   SimpleInode** inodes;
   int* heights;
-  long stack_size;
+  long stack_length;
 
   Rectangle* rest;
 };
