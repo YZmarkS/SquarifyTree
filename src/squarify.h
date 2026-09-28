@@ -16,7 +16,7 @@
 #include "simple_inode.h"
 #include "algo.h"
 
-#define PIXEL_ASPECT_RATIO 2
+#define HEIGHT_TO_WIDTH_RATIO 2
 
 #define SPLIT_THRESHOLD 4
 
@@ -57,11 +57,6 @@ struct Cell {
   int length;
 };
 
-struct Stack {
-  int width;
-  Cell* cells;
-  long num_cells;
-};
 
 struct SplitDetail {
   int stack_thickness;
@@ -86,6 +81,8 @@ struct Rectangle {
     WholeDetail whole_detail;
   } detail;
 };
+
+bool isLandScape(int width, int height);
 
 Rectangle* fill(SimpleInode * remains, int width, int height);
 

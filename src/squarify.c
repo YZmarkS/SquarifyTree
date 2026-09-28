@@ -1,5 +1,9 @@
 #include "squarify.h"
 
+bool isLandscape(int width, int height) {
+  return width >= (height * HEIGHT_TO_WIDTH_RATIO);
+}
+
 int calcStackThickness(off_t size, off_t total_size, int thickness_to_use) {
   double precise_thickness =
     ((double) thickness_to_use) * ((double) size) / ((double) total_size);
@@ -37,8 +41,8 @@ int* calcStack(SimpleInode* inodes, long n, int total_height) {
 
 
 double worstRatio(int dimension_1[], long length, int dimension_2, StackDirection direction) {
-  const double length_1 = direction == VERTICAL ? PIXEL_ASPECT_RATIO : 1;
-  const double length_2 = direction == VERTICAL ? 1 : PIXEL_ASPECT_RATIO;
+  const double length_1 = direction == VERTICAL ? HIEGHT_TO_WIDTH_RATIO : 1;
+  const double length_2 = direction == VERTICAL ? 1 : HIEGHT_TO_WIDTH_RATIO;
   double worst = 0;
   for (long i = 0; i < length; i++) {
     // Technically normalize means to the unit distance
@@ -58,7 +62,7 @@ Rectangle* fill(SimpleInode* remains, int width, int height) {
   new_rectangle->width = width;
   new_rectangle->height = height;
 
-  bool is_landscape = width >= (height * PIXEL_ASPECT_RATIO);
+  bool is_landscape = isLandscape(width, height);
   bool enough_to_split = (is_landscape ? width : height) > SPLIT_THRESHOLD;
 
   if (remains == NULL || !enough_to_split) {
@@ -166,7 +170,7 @@ void debugRectangle(Rectangle* rect, int indent) {
   int width = rect->width;
   int height = rect->height;
 
-  bool is_landscape = width >= height * PIXEL_ASPECT_RATIO;
+  bool is_landscape = isLandscape(width, height);
 
   indenting(indent);
   printf("Width: %d, Height: %d, Orientation: %s\n", width, height, is_landscape ? "Landscape" : "Portrait");
