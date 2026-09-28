@@ -41,8 +41,8 @@ int* calcStack(SimpleInode* inodes, long n, int total_height) {
 
 
 double worstRatio(int dimension_1[], long length, int dimension_2, StackDirection direction) {
-  const double length_1 = direction == VERTICAL ? HIEGHT_TO_WIDTH_RATIO : 1;
-  const double length_2 = direction == VERTICAL ? 1 : HIEGHT_TO_WIDTH_RATIO;
+  const double length_1 = direction == VERTICAL ? HEIGHT_TO_WIDTH_RATIO : 1;
+  const double length_2 = direction == VERTICAL ? 1 : HEIGHT_TO_WIDTH_RATIO;
   double worst = 0;
   for (long i = 0; i < length; i++) {
     // Technically normalize means to the unit distance

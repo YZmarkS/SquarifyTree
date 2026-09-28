@@ -118,7 +118,7 @@ void renderRectangles(Rectangle* rect, int x, int y, int mx, int my, uint32_t* m
     return;
   }
   if (rect->type == SPLIT) {
-    bool is_landscape = rect->width >= (rect->height * PIXEL_ASPECT_RATIO);
+    bool is_landscape = rect->width >= (rect->height * HEIGHT_TO_WIDTH_RATIO);
     if (is_landscape) {
       renderLandscape(rect, x, y, mx, my, matrix);
     } else {
