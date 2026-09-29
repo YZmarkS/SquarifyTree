@@ -48,6 +48,10 @@ struct Cell {
 struct CellList {
   Cell* cell_ptr;
   CellList* next;
-} CellList;
+};
+
+CellList* rectangleToCells(Rectangle* rectangle);
+
+void relateCells(CellList* cells_list);
 
 #endif

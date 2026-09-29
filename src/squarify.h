@@ -50,14 +50,6 @@ typedef struct SplitDetail SplitDetail;
 
 typedef struct WholeDetail WholeDetail;
 
-typedef struct Cell Cell;
-
-struct Cell {
-  SimpleInode* inode;
-  int length;
-};
-
-
 struct SplitDetail {
   int stack_thickness;
   SimpleInode** inodes;
@@ -82,7 +74,7 @@ struct Rectangle {
   } detail;
 };
 
-bool isLandScape(int width, int height);
+bool isLandscape(int width, int height);
 
 Rectangle* fill(SimpleInode * remains, int width, int height);
 

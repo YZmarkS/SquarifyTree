@@ -16,6 +16,11 @@ int main(int argc, char* argv[]) {
   renderRectangles(rect, 0, 0, 201, 51, matrix);
   printMatrix(201, 51, matrix);
 
+  CellList* cell_ptr_list = rectangleToCells(rect);
+  printf("DONE conversion\n");
+  relateCells(cell_ptr_list);
+
+
 
   /* char c; */
   /* terminalSetup(); */

@@ -5,6 +5,7 @@
 #include "walker.h"
 #include "squarify.h"
 #include "render.h"
+#include "ui_logic.h"
 
 #include <ctype.h>
 #include <stdlib.h>
