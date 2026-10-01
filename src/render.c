@@ -77,7 +77,7 @@ void drawBottom(int x, int y, int mx, int my, uint32_t* matrix) {
 }
 
 void drawLineHorizontal(int x1, int x2, int y, int mx, int my, uint32_t* matrix) {
-  printf("(%d, %d) --- (%d, %d)\n", x1, y, x2, y);
+  /* printf("(%d, %d) --- (%d, %d)\n", x1, y, x2, y); */
   drawRight(x1, y, mx, my, matrix);
   for (int x = x1 + 1; x < x2; x++) {
     drawHorizontal(x, y, mx, my, matrix);
@@ -86,7 +86,7 @@ void drawLineHorizontal(int x1, int x2, int y, int mx, int my, uint32_t* matrix)
 }
 
 void drawLineVertical(int x, int y1, int y2, int mx, int my, uint32_t* matrix) {
-  printf("(%d, %d) --- (%d, %d)\n", x, y1, x, y2);
+  /* printf("(%d, %d) --- (%d, %d)\n", x, y1, x, y2); */
   drawBottom(x, y1, mx, my, matrix);
   for (int y = y1 + 1; y < y2; y++) {
     drawVertical(x, y, mx, my, matrix);

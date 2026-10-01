@@ -12,9 +12,20 @@
 #include <libgen.h>
 #include <string.h>
 #include <dirent.h>
+#include <stdint.h>
 
 #include "simple_inode.h"
 #include "squarify.h"
+
+typedef enum Component {
+  ABSCISSA,			/* x */
+  ORDINATE			/* y */
+} Component;
+
+typedef enum RelateDirection {
+  LEFT_RIGHT,
+  TOP_BOTTOM
+} RelateDirection;
 
 typedef enum CellType {
   ELEMENT,
@@ -25,7 +36,7 @@ typedef struct Coordinate Coordinate;
 
 typedef struct Cell Cell;
 
-typedef struct CellList CellList;
+typedef struct CellPtrList CellPtrList;
 
 struct Coordinate {
   int x;
@@ -35,7 +46,7 @@ struct Coordinate {
 struct Cell {
   Coordinate top_left;
   Coordinate bottom_right;
-  struct neightbours {
+  struct neighbours {
     Cell* top;
     Cell* bottom;
     Cell* left;
@@ -45,13 +56,12 @@ struct Cell {
   SimpleInode* inode;
 };
 
-struct CellList {
+struct CellPtrList {
   Cell* cell_ptr;
-  CellList* next;
+  CellPtrList* next;
 };
 
-CellList* rectangleToCells(Rectangle* rectangle);
+CellPtrList* rectangleToCells(const Rectangle* rectangle);
 
-void relateCells(CellList* cells_list);
-
+void relateCells(const CellPtrList* cell_ptr_list, int maximum, RelateDirection relate_direction);
 #endif
