@@ -1,0 +1,48 @@
+#+TITLE: Multithreaded Scan
+
+Here are some initial thoughts on how to design a multithreaded directory explorer.
+
+* Worker Pool
+
+A worker pool is created on the start of scan.
+
+When need to scan a directory, perform the global operation:
+#+begin_quote
+Create a ~SimpleInode*~ for the said directory, and place the said ~SimpleInode*~ into a work queue.
+#+end_quote
+
+A worker pick up a task (a.k.a ~inode~) from the queue, and perform the following operations:
+
+#+begin_src
+  inode := job_queue.pop()
+  dir_stream := opendir(inode)
+
+  children_inodes = []
+  num_subdir = 0
+  subdir_inodes = []
+
+  for entry in dir_stream:
+    new_inode := create_new_inode(entry)
+    fill new_inode with information
+    append(children_inodes, new_inode)
+
+    if entry is DIR:
+      num_subdirectories++
+      append(subdir_inodes, new_inode)
+
+  awaiting_queue[inode] := num_subdirectories
+
+  for subdir_inode in subdir_inodes:
+    job_queue.insert( subdir_inode )
+    parent[subdir_inode] = inode
+#+end_src
+
+There is one more worker thread working on the following:
+
+#+begin_src
+  dir_inode := some inode such that awaiting_queue[inode] == 0
+  awaiting_queue.remove(dir_inode)
+  dir_inode_parent = parent[dir_inode]
+  awaiting_queue[dir_inode_parent]--
+#+end_src
+
