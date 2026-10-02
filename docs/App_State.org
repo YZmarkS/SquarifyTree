@@ -1,0 +1,19 @@
+#+TITLE: App State
+
+* Finite State Machine Model
+
+We will use a finite state machine to model the states our application can be in.
+
+** Exploring
+
+** Logic Building
+
+** UI Initialization
+
+** UI Updating
+
+** Rendering
+
+** Printing
+
+** 
