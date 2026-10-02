@@ -17,6 +17,13 @@
 #include "simple_inode.h"
 #include "squarify.h"
 
+typedef enum MoveDirection {
+  L,				/* left */
+  R,				/* right */
+  U,				/* up */
+  D				/* down */
+} MoveDirection;
+
 typedef enum Component {
   ABSCISSA,			/* x */
   ORDINATE			/* y */
@@ -46,6 +53,8 @@ struct Coordinate {
 struct Cell {
   Coordinate top_left;
   Coordinate bottom_right;
+  CellType type;
+
   struct neighbours {
     Cell* top;
     Cell* bottom;

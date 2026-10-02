@@ -3,12 +3,22 @@
 /* You better make sure the reference to the cells you are
    pointing to is held by someone else, or you get a leak
  */
-void freeCellPtrListOnly(CellPtrList* cell_ptr_list) {
-  CellPtrList* savepoint = cell_ptr_list;
+void freeCellPtrListContainer(CellPtrList* cell_ptr_list) {
+  CellPtrList* to_free;
   while (cell_ptr_list != NULL) {
-    savepoint = cell_ptr_list;
+    to_free = cell_ptr_list;
     cell_ptr_list = cell_ptr_list->next;
-    free(savepoint);
+    free(to_free);
+  }
+}
+
+void freeCellPtrList(CellPtrList* cell_ptr_list) {
+  CellPtrList* to_free;
+  while (cell_ptr_list != NULL) {
+    to_free = cell_ptr_list;
+    cell_ptr_list = cell_ptr_list->next;
+    free(to_free->cell_ptr);
+    free(to_free);
   }
 }
 
@@ -52,13 +62,15 @@ CellPtrList* rectangleToCells(const Rectangle* rectangle) {
     for (long i = 0; i < split_detail.stack_length; i++) {
       CellPtrList* new_cell_ptr_list_node = (CellPtrList*)calloc(1, sizeof(CellPtrList));
       Cell* new_cell = (Cell*)calloc(1, sizeof(Cell));
+
       new_cell->top_left = layer_top_left;
 
       Coordinate layer_bottom_right = layer_top_left;
       layer_bottom_right.x += (is_landscape ? stack_thickness : split_detail.heights[i]);
       layer_bottom_right.y += (is_landscape ? split_detail.heights[i] : stack_thickness);
-
       new_cell->bottom_right = layer_bottom_right;
+
+      new_cell->type = ELEMENT;
 
       new_cell_ptr_list_node->cell_ptr = new_cell;
       new_cell_ptr_list_node->next = head;
@@ -83,6 +95,8 @@ CellPtrList* rectangleToCells(const Rectangle* rectangle) {
     bottom_right.y += rectangle->height;
     last_cell->top_left = curr_top_left;
     last_cell->bottom_right = bottom_right;
+
+    last_cell->type = OTHER;
 
     last_cell_ptr_list_node->cell_ptr = last_cell;
     last_cell_ptr_list_node->next = head;
@@ -227,9 +241,28 @@ void relateCells(const CellPtrList* cell_ptr_list, int maximum, RelateDirection 
   }
 
   for (int i = 0; i < maximum + 1; i++) {
-    freeCellPtrListOnly(cells_by_lower[i]);
-    freeCellPtrListOnly(cells_by_higher[i]);
+    freeCellPtrListContainer(cells_by_lower[i]);
+    freeCellPtrListContainer(cells_by_higher[i]);
   }
   free(cells_by_lower);
   free(cells_by_higher);
+}
+
+Cell* move(Cell* current_cell, MoveDirection direction) {
+  Cell* next = NULL;
+  switch (direction) {
+  case L:
+    next = current_cell->neighbours.left;
+    break;
+  case R:
+    next = current_cell->neighbours.right;
+    break;
+  case U:
+    next = current_cell->neighbours.top;
+    break;
+  case D:
+    next = current_cell->neighbours.bottom;
+    break;
+  }
+  return (next != NULL ? next : current_cell);
 }
