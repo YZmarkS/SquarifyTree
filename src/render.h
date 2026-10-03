@@ -38,12 +38,12 @@ void clearMatrix(int mx, int my, uint32_t* matrix);
 
 void printMatrix(int mx, int my, uint32_t* matrix);
 
-void renderRectangles(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix);
+void paintLayout(Layout* rect, int x, int y, int mx, int my, uint32_t* matrix);
 
-void renderLandscape(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix);
+void paintLandscape(Layout* rect, int x, int y, int mx, int my, uint32_t* matrix);
 
-  void renderPortrait(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix);
+void paintPortrait(Layout* rect, int x, int y, int mx, int my, uint32_t* matrix);
 
-void drawBoarder(int mx, int my, uint32_t* matrix);
+void paintBoarder(int mx, int my, uint32_t* matrix);
 
 #endif

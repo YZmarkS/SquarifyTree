@@ -32,17 +32,17 @@ typedef enum StackDirection {
   HORIZONTAL
 } StackDirection;
 
-typedef enum RectangleType {
+typedef enum LayoutType {
   SPLIT,
   WHOLE
-} RectangleType;
+} LayoutType;
 
 typedef enum Orientation {
   LANDSCAPE,
   PORTRAIT
 } Orientation;
 
-typedef struct Rectangle Rectangle;
+typedef struct Layout Layout;
 
 typedef struct Stack Stack;
 
@@ -56,18 +56,18 @@ struct SplitDetail {
   int* heights;
   long stack_length;
 
-  Rectangle* rest;
+  Layout* rest;
 };
 
 struct WholeDetail {
   SimpleInode* remains;
 };
 
-struct Rectangle {
+struct Layout {
   int width;			/* width */
   int height; 			/* height */
 
-  RectangleType type;
+  LayoutType type;
   union {
     SplitDetail split_detail;
     WholeDetail whole_detail;
@@ -76,8 +76,8 @@ struct Rectangle {
 
 bool isLandscape(int width, int height);
 
-Rectangle* fill(SimpleInode * remains, int width, int height);
+Layout* squarify(SimpleInode* remains, int width, int height);
 
-void debugRectangle(Rectangle* rectangle, int indent);
+void debugLayout(Layout* rectangle, int indent);
 
 #endif

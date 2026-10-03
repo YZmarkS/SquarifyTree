@@ -1,4 +1,4 @@
-#include "ui_logic.h"
+#include "layout_logic.h"
 
 /* You better make sure the reference to the cells you are
    pointing to is held by someone else, or you get a leak
@@ -46,17 +46,17 @@ long cellListLength(CellPtrList* list) {
 }
 
 // Caller responsible for freeing data
-CellPtrList* rectangleToCells(const Rectangle* rectangle) {
+CellPtrList* layoutToCells(const Layout* layout) {
   CellPtrList* head = NULL;
 
   Coordinate curr_top_left;
   curr_top_left.x = 0;
   curr_top_left.y = 0;
 
-  while (rectangle->type == SPLIT) {
-    bool is_landscape = isLandscape(rectangle->width, rectangle->height);
+  while (layout->type == SPLIT) {
+    bool is_landscape = isLandscape(layout->width, layout->height);
     Coordinate layer_top_left = curr_top_left;
-    SplitDetail split_detail = rectangle->detail.split_detail;
+    SplitDetail split_detail = layout->detail.split_detail;
     int stack_thickness = split_detail.stack_thickness;
 
     for (long i = 0; i < split_detail.stack_length; i++) {
@@ -82,17 +82,17 @@ CellPtrList* rectangleToCells(const Rectangle* rectangle) {
     curr_top_left.x += (is_landscape ? stack_thickness : 0);
     curr_top_left.y += (is_landscape ? 0 : stack_thickness);
 
-    rectangle = rectangle->detail.split_detail.rest;
+    layout = layout->detail.split_detail.rest;
   }
 
-  assert(rectangle->type == WHOLE);
-  if (rectangle->detail.whole_detail.remains != NULL) {
+  assert(layout->type == WHOLE);
+  if (layout->detail.whole_detail.remains != NULL) {
     CellPtrList* last_cell_ptr_list_node = (CellPtrList*)calloc(1, sizeof(CellPtrList));
     Cell* last_cell = (Cell*)calloc(1, sizeof(Cell));
 
     Coordinate bottom_right = curr_top_left;
-    bottom_right.x += rectangle->width;
-    bottom_right.y += rectangle->height;
+    bottom_right.x += layout->width;
+    bottom_right.y += layout->height;
     last_cell->top_left = curr_top_left;
     last_cell->bottom_right = bottom_right;
 
@@ -170,15 +170,10 @@ void groupCellsByIntervalEndpoint(CellPtrList** cells_by_lower,
     lower_cell_ptr_node->cell_ptr = cell;
     higher_cell_ptr_node->cell_ptr = cell;
 
-    printf("allocated: %p %p\n", lower_cell_ptr_node, higher_cell_ptr_node);
-
     lower_cell_ptr_node->next = cells_by_lower[lower];
     cells_by_lower[lower] = lower_cell_ptr_node;
-
     higher_cell_ptr_node->next = cells_by_higher[higher];
     cells_by_higher[higher] = higher_cell_ptr_node;
-
-    printf("assigned: %p %p\n", cells_by_lower[lower], cells_by_higher[higher]);
 
     curr = curr->next;
   }
@@ -186,7 +181,9 @@ void groupCellsByIntervalEndpoint(CellPtrList** cells_by_lower,
 
 
 // Borrow
-void relateCells(const CellPtrList* cell_ptr_list, int maximum, RelateDirection relate_direction) {
+void relateCells(const CellPtrList* cell_ptr_list,
+		 int maximum,
+		 RelateDirection relate_direction) {
 
   bool group_by_x = relate_direction == LEFT_RIGHT;
   bool overlap_by_y = relate_direction == LEFT_RIGHT;
@@ -206,13 +203,11 @@ void relateCells(const CellPtrList* cell_ptr_list, int maximum, RelateDirection 
 
   const CellPtrList* curr = cell_ptr_list;
   while (curr != NULL) {
-    printf("Working on a node\n");
     Cell* cell = curr->cell_ptr;
     int lower_group = group_by_x ? cell->top_left.x : cell->top_left.y;
     int higher_group = group_by_x ? cell->bottom_right.x : cell->bottom_right.y;
     int fixed_lower = overlap_by_y ? cell->top_left.y : cell->top_left.x;
     int fixed_higher = overlap_by_y ? cell->bottom_right.y : cell->bottom_right.x;
-
 
     Cell* best_neighbour_on_lower_side =
       findMostOverlapping(cells_by_higher[lower_group],
@@ -225,8 +220,6 @@ void relateCells(const CellPtrList* cell_ptr_list, int maximum, RelateDirection 
 			  fixed_lower, fixed_higher,
 			  component_to_check);
 
-    printf("  Found higher side\n");
-
     if (relate_direction == LEFT_RIGHT) {
       cell->neighbours.left = best_neighbour_on_lower_side;
       cell->neighbours.right = best_neighbour_on_higher_side;
@@ -237,7 +230,6 @@ void relateCells(const CellPtrList* cell_ptr_list, int maximum, RelateDirection 
 
     curr = curr->next;
 
-
   }
 
   for (int i = 0; i < maximum + 1; i++) {
@@ -246,23 +238,4 @@ void relateCells(const CellPtrList* cell_ptr_list, int maximum, RelateDirection 
   }
   free(cells_by_lower);
   free(cells_by_higher);
-}
-
-Cell* move(Cell* current_cell, MoveDirection direction) {
-  Cell* next = NULL;
-  switch (direction) {
-  case L:
-    next = current_cell->neighbours.left;
-    break;
-  case R:
-    next = current_cell->neighbours.right;
-    break;
-  case U:
-    next = current_cell->neighbours.top;
-    break;
-  case D:
-    next = current_cell->neighbours.bottom;
-    break;
-  }
-  return (next != NULL ? next : current_cell);
 }

@@ -1,5 +1,5 @@
-#ifndef _UI_LOGIC
-#define _UI_LOGIC
+#ifndef _LAYOUT
+#define _LAYOUT
 
 #ifndef _LARGEFILE64_SOURCE
 #define _LARGEFILE64_SOURCE
@@ -16,13 +16,7 @@
 
 #include "simple_inode.h"
 #include "squarify.h"
-
-typedef enum MoveDirection {
-  L,				/* left */
-  R,				/* right */
-  U,				/* up */
-  D				/* down */
-} MoveDirection;
+#include "util.h"
 
 typedef enum Component {
   ABSCISSA,			/* x */
@@ -51,9 +45,9 @@ struct Coordinate {
 };
 
 struct Cell {
+  CellType type;
   Coordinate top_left;
   Coordinate bottom_right;
-  CellType type;
 
   struct neighbours {
     Cell* top;
@@ -70,7 +64,7 @@ struct CellPtrList {
   CellPtrList* next;
 };
 
-CellPtrList* rectangleToCells(const Rectangle* rectangle);
+CellPtrList* layoutToCells(const Layout* rectangle);
 
 void relateCells(const CellPtrList* cell_ptr_list, int maximum, RelateDirection relate_direction);
 #endif

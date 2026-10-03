@@ -1,6 +1,6 @@
 #include "render.h"
 
-void drawHorizontal(int x, int y, int mx, int my, uint32_t* matrix) {
+void paintHorizontal(int x, int y, int mx, int my, uint32_t* matrix) {
   long position = mx * y + x;
   switch(matrix[position]) {
     case vl:
@@ -14,7 +14,7 @@ void drawHorizontal(int x, int y, int mx, int my, uint32_t* matrix) {
   }
 }
 
-void drawVertical(int x, int y, int mx, int my, uint32_t* matrix) {
+void paintVertical(int x, int y, int mx, int my, uint32_t* matrix) {
   long position = mx * y + x;
   switch(matrix[position]) {
     case hl:
@@ -28,7 +28,7 @@ void drawVertical(int x, int y, int mx, int my, uint32_t* matrix) {
   }
 }
 
-void drawLeft(int x, int y, int mx, int my, uint32_t* matrix) {
+void paintLeft(int x, int y, int mx, int my, uint32_t* matrix) {
   long position = mx * y + x;
   switch(matrix[position]) {
     case vl:
@@ -40,7 +40,7 @@ void drawLeft(int x, int y, int mx, int my, uint32_t* matrix) {
   }
 }
 
-void drawRight(int x, int y, int mx, int my, uint32_t* matrix) {
+void paintRight(int x, int y, int mx, int my, uint32_t* matrix) {
   long position = mx * y + x;
   switch(matrix[position]) {
     case vl:
@@ -52,7 +52,7 @@ void drawRight(int x, int y, int mx, int my, uint32_t* matrix) {
   }
 }
 
-void drawTop(int x, int y, int mx, int my, uint32_t* matrix) {
+void paintTop(int x, int y, int mx, int my, uint32_t* matrix) {
   long position = mx * y + x;
   switch(matrix[position]) {
     case hl:
@@ -64,7 +64,7 @@ void drawTop(int x, int y, int mx, int my, uint32_t* matrix) {
   }
 }
 
-void drawBottom(int x, int y, int mx, int my, uint32_t* matrix) {
+void paintBottom(int x, int y, int mx, int my, uint32_t* matrix) {
   long position = mx * y + x;
   switch(matrix[position]) {
     case hl:
@@ -76,32 +76,32 @@ void drawBottom(int x, int y, int mx, int my, uint32_t* matrix) {
   }
 }
 
-void drawLineHorizontal(int x1, int x2, int y, int mx, int my, uint32_t* matrix) {
+void paintLineHorizontal(int x1, int x2, int y, int mx, int my, uint32_t* matrix) {
   /* printf("(%d, %d) --- (%d, %d)\n", x1, y, x2, y); */
-  drawRight(x1, y, mx, my, matrix);
+  paintRight(x1, y, mx, my, matrix);
   for (int x = x1 + 1; x < x2; x++) {
-    drawHorizontal(x, y, mx, my, matrix);
+    paintHorizontal(x, y, mx, my, matrix);
   }
-  drawLeft(x2, y, mx, my, matrix);
+  paintLeft(x2, y, mx, my, matrix);
 }
 
-void drawLineVertical(int x, int y1, int y2, int mx, int my, uint32_t* matrix) {
+void paintLineVertical(int x, int y1, int y2, int mx, int my, uint32_t* matrix) {
   /* printf("(%d, %d) --- (%d, %d)\n", x, y1, x, y2); */
-  drawBottom(x, y1, mx, my, matrix);
+  paintBottom(x, y1, mx, my, matrix);
   for (int y = y1 + 1; y < y2; y++) {
-    drawVertical(x, y, mx, my, matrix);
+    paintVertical(x, y, mx, my, matrix);
   }
-  drawTop(x, y2, mx, my, matrix);
+  paintTop(x, y2, mx, my, matrix);
 }
 
-void drawBoarder(int mx, int my, uint32_t* matrix) {
+void paintBoarder(int mx, int my, uint32_t* matrix) {
   for (int x = 1; x < mx - 1; x++) {
-    drawHorizontal(x, 0, mx, my, matrix);
-    drawHorizontal(x, my - 1, mx, my, matrix);
+    paintHorizontal(x, 0, mx, my, matrix);
+    paintHorizontal(x, my - 1, mx, my, matrix);
   }
   for (int y = 1; y < my - 1; y++) {
-    drawVertical(0, y, mx, my, matrix);
-    drawVertical(mx - 1, y, mx, my, matrix);
+    paintVertical(0, y, mx, my, matrix);
+    paintVertical(mx - 1, y, mx, my, matrix);
   }
 
   matrix[0] = tl;
@@ -112,7 +112,7 @@ void drawBoarder(int mx, int my, uint32_t* matrix) {
   printf("Done boarder\n");
 }
 
-void renderRectangles(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix) {
+void paintLayout(Layout* rect, int x, int y, int mx, int my, uint32_t* matrix) {
   bool is_landscape = rect->width >= rect->height;
   if (rect->type == WHOLE) {
     return;
@@ -120,41 +120,41 @@ void renderRectangles(Rectangle* rect, int x, int y, int mx, int my, uint32_t* m
   if (rect->type == SPLIT) {
     bool is_landscape = rect->width >= (rect->height * HEIGHT_TO_WIDTH_RATIO);
     if (is_landscape) {
-      renderLandscape(rect, x, y, mx, my, matrix);
+      paintLandscape(rect, x, y, mx, my, matrix);
     } else {
-      renderPortrait(rect, x, y, mx, my, matrix);
+      paintPortrait(rect, x, y, mx, my, matrix);
     }
   }
 }
 
-void renderLandscape(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix) {
+void paintLandscape(Layout* rect, int x, int y, int mx, int my, uint32_t* matrix) {
   SplitDetail split_detail = rect->detail.split_detail;
   int split_line_x = x + split_detail.stack_thickness;
-  drawLineVertical(split_line_x, y, my - 1, mx, my, matrix);
+  paintLineVertical(split_line_x, y, my - 1, mx, my, matrix);
 
   int total_height = 0;
   for (long i = 0; i < split_detail.stack_length - 1; i++) {
     total_height += split_detail.heights[i];
     int layer_line_y = y + total_height;
-    drawLineHorizontal(x, split_line_x, layer_line_y, mx, my, matrix);
+    paintLineHorizontal(x, split_line_x, layer_line_y, mx, my, matrix);
   }
 
-  renderRectangles(split_detail.rest, split_line_x, y, mx, my, matrix);
+  paintLayout(split_detail.rest, split_line_x, y, mx, my, matrix);
 }
 
-void renderPortrait(Rectangle* rect, int x, int y, int mx, int my, uint32_t* matrix) {
+void paintPortrait(Layout* rect, int x, int y, int mx, int my, uint32_t* matrix) {
   SplitDetail split_detail = rect->detail.split_detail;
   int split_line_y = y + split_detail.stack_thickness;
-  drawLineHorizontal(x, mx - 1, split_line_y, mx, my, matrix);
+  paintLineHorizontal(x, mx - 1, split_line_y, mx, my, matrix);
 
   int total_width = 0;
   for (long i = 0; i < split_detail.stack_length - 1; i++) {
     total_width += split_detail.heights[i];
     int layer_line_x = x + total_width;
-    drawLineVertical(layer_line_x, y, split_line_y, mx, my, matrix);
+    paintLineVertical(layer_line_x, y, split_line_y, mx, my, matrix);
   }
 
-  renderRectangles(split_detail.rest, x, split_line_y, mx, my, matrix);
+  paintLayout(split_detail.rest, x, split_line_y, mx, my, matrix);
 }
 
 void clearMatrix(int mx, int my, uint32_t* matrix) {

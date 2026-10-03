@@ -57,8 +57,8 @@ double worstRatio(int dimension_1[], long length, int dimension_2, StackDirectio
   return worst;
 }
 
-Rectangle* fill(SimpleInode* remains, int width, int height) {
-  Rectangle* new_rectangle = (Rectangle*)calloc(1, sizeof(Rectangle));
+Layout* squarify(SimpleInode* remains, int width, int height) {
+  Layout* new_rectangle = (Layout*)calloc(1, sizeof(Layout));
   new_rectangle->width = width;
   new_rectangle->height = height;
 
@@ -154,7 +154,7 @@ Rectangle* fill(SimpleInode* remains, int width, int height) {
   split_detail.inodes = inodes;
   split_detail.heights = heights;
   split_detail.stack_length = stack_length;
-  split_detail.rest = fill(candidate, sub_width, sub_height);
+  split_detail.rest = squarify(candidate, sub_width, sub_height);
 
   new_rectangle->type = SPLIT;
   new_rectangle->detail.split_detail = split_detail;
@@ -165,7 +165,7 @@ void indenting(int indent) {
   for (int i = 0; i < indent; i++) { printf("  "); }
 }
 
-void debugRectangle(Rectangle* rect, int indent) {
+void debugLayout(Layout* rect, int indent) {
 
   int width = rect->width;
   int height = rect->height;
@@ -181,7 +181,7 @@ void debugRectangle(Rectangle* rect, int indent) {
   }
 
   if (rect->type == SPLIT) {
-    Rectangle* rest = rect->detail.split_detail.rest;
+    Layout* rest = rect->detail.split_detail.rest;
     int stack_thickness = rect->detail.split_detail.stack_thickness;
     indenting(indent);
     printf("Stack Thickness: %d    Stack Orientation: %s\n",
@@ -215,6 +215,6 @@ void debugRectangle(Rectangle* rect, int indent) {
 	   thickness_sum,
 	   thickness_sum == thickness_sum_target ? "True" : "False <==");
 
-    debugRectangle(rest, indent + 1);
+    debugLayout(rest, indent + 1);
   }
 }

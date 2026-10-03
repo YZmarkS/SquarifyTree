@@ -20,7 +20,9 @@ typedef enum PathTypeEnum {
 
 typedef struct RegDetail RegDetail;
 typedef struct DirDetail DirDetail;
+
 typedef struct SimpleInode SimpleInode;
+typedef struct InodePtrList InodePtrList;
 
 struct RegDetail {
   off_t size;
@@ -40,6 +42,11 @@ struct SimpleInode {
   } detail;
   SimpleInode * next;
 };
+
+typedef struct InodePtrList {
+  SimpleInode* inode;
+  InodePtrList* next;
+} InodePtrList;
 
 // One must maintain the invariant that len(content) = length
 typedef struct InodePtrSlice {

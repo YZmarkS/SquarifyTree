@@ -36,6 +36,9 @@ void enableRawMode() {
   new_termios.c_cflag |= ~control_flags_to_enable;
   new_termios.c_lflag &= ~local_flags_to_disable;
 
+  // This actually overwrites the meaning of [read] returning 0
+  // read(2) says if [read] return 0 it is end of file
+  // terminos(3) says if [read] return 0 it is because stream is empty
   new_termios.c_cc[VMIN] = 0;
   new_termios.c_cc[VTIME] = 1;
 
@@ -47,6 +50,7 @@ void enableRawMode() {
 void terminalSetup() {
   enableRawMode();
 
+  // Alternate screen
   printf("\x1b[?1049h");
   fflush(stdout);
 
