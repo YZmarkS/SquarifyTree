@@ -7,15 +7,15 @@ use std::thread;
 use std::sync::{Arc, Mutex, mpsc, mpsc::{Sender, Receiver}};
 
 type InodeId = usize;
-type ScanTask = InodeId;
-type CompletedTask = InodeId;
 
-struct ScannerState {
+pub const FIRST_ID: InodeId = 0;
+
+pub struct ScannerState {
     next_inode_id: InodeId,
-    inodes: HashMap<InodeId, Arc<Mutex<ScannerInode>>>,
+    pub inodes: HashMap<InodeId, Arc<Mutex<ScannerInode>>>,
     parent_by_id: HashMap<InodeId, InodeId>,
     pending_count_by_id: HashMap<InodeId, usize>,
-    work_queue: VecDeque<ScanTask>,
+    work_queue: VecDeque<InodeId>,
 }
 
 impl ScannerState {
@@ -26,20 +26,73 @@ impl ScannerState {
     }
 }
 
-struct ScannerInode {
-    path: PathBuf,
-    size: u64,
-    detail: ScannerInodeDetail,
+pub struct ScannerInode {
+    pub path: PathBuf,
+    pub size: u64,
+    pub detail: ScannerInodeDetail,
 }
 
-enum ScannerInodeDetail {
+pub enum ScannerInodeDetail {
     Reg,
     Sym,
     Dir(Vec<Arc<Mutex<ScannerInode>>>),
 }
 
-fn scan(path: &Path, worker_pool_size: usize) -> Result<ScannerInode> {
-    todo!()
+pub fn scan(path: &Path, worker_pool_size: usize) ->
+    Result<Arc<Mutex<ScannerState>>> {
+    let path_metadata = metadata(path)?;
+    if !path_metadata.is_dir() {
+	panic!("Not a directory");
+    }
+
+    let mut state = ScannerState {
+	next_inode_id: FIRST_ID,
+	inodes: HashMap::new(),
+	parent_by_id: HashMap::new(),
+	pending_count_by_id: HashMap::new(),
+	work_queue: VecDeque::new(),
+    };
+
+    let root_id = state.get_next_inode_id();
+    let root_inode = ScannerInode {
+	path: path.to_path_buf(),
+	size: 0,
+	detail: ScannerInodeDetail::Dir(Vec::new()),
+    };
+    let root_inode_arc = Arc::new(Mutex::new(root_inode));
+
+    state.inodes.insert(root_id, root_inode_arc);
+    state.work_queue.push_back(root_id);
+
+    let state_arc = Arc::new(Mutex::new(state));
+    let root_collected = Arc::new(Mutex::new(false));
+    let (sender, receiver) = mpsc::channel();
+
+    let mut scanner_handles = vec![];
+    for _ in 0..worker_pool_size {
+	let state_arc = Arc::clone(&state_arc);
+	let root_collected = Arc::clone(&root_collected);
+	let sender = sender.clone();
+	let scanner_handle = thread::spawn(move || {
+	    scanner(state_arc, root_collected, sender);
+	});
+	scanner_handles.push(scanner_handle);
+    }
+
+    let collector_state_arc = Arc::clone(&state_arc);
+    let collector_root_collected = Arc::clone(&root_collected);
+    let collector_handle = thread::spawn(move || {
+	collector(collector_state_arc,
+		  collector_root_collected,
+		  receiver);
+    });
+
+    for scanner_handle in scanner_handles {
+	scanner_handle.join().unwrap();
+    }
+    collector_handle.join().unwrap();
+
+    Ok(state_arc)
 }
 
 fn entry_to_init_inode(dir_entry: &DirEntry) -> ScannerInode {
@@ -85,11 +138,13 @@ fn get_next_inode_id(state_arc: &Arc<Mutex<ScannerState>>) -> InodeId {
 
 fn scanner(state_arc: Arc<Mutex<ScannerState>>,
 	   root_collected: Arc<Mutex<bool>>,
-	   sender: Sender<InodeId>) -> () {
+	   sender: Sender<(InodeId, usize)>) -> () {
     loop {
+	println!("I'm a worker");
 	if *root_collected.lock().unwrap() {
 	    break
 	}
+	println!("Worker: root not collected");
 
 	/*
 	It is possible there are no task because some other thread is adding
@@ -99,6 +154,7 @@ fn scanner(state_arc: Arc<Mutex<ScannerState>>,
 	    Some((dir_id, dir_inode_arc)) => (dir_id, dir_inode_arc),
 	    None => continue,
 	};
+	println!("Worker: Found a task: {}", dir_id);
 
 	let mut dir_inode = dir_inode_arc.lock().unwrap();
 
@@ -108,6 +164,8 @@ fn scanner(state_arc: Arc<Mutex<ScannerState>>,
 	    let dir_entry = dir_entry_result.unwrap();
 	    let dir_entry_inode = entry_to_init_inode(&dir_entry);
 	    let dir_entry_id = get_next_inode_id(&state_arc);
+
+	    println!("Worker: I found an entry: {}", dir_entry.path().display());
 
 	    /*
 	    Some information can be added now
@@ -145,12 +203,56 @@ fn scanner(state_arc: Arc<Mutex<ScannerState>>,
 	{
 	    let mut state = (&state_arc).lock().unwrap();
 	    (*state).pending_count_by_id.insert(dir_id, subdir_ids.len());
-	    for subdir_id in subdir_ids {
-		(*state).work_queue.push_back(subdir_id);
+	    for subdir_id in &subdir_ids {
+		(*state).work_queue.push_back(subdir_id.to_owned());
 	    }
 	}
+	sender.send((dir_id, subdir_ids.len())).unwrap();
     }
 }
 
-fn collector(state: ScannerState) -> () {
+fn collector(state_arc: Arc<Mutex<ScannerState>>,
+	     root_collected: Arc<Mutex<bool>>,
+	     receiver: Receiver<(InodeId, usize)>) -> () {
+    loop {
+	println!("I'm a collector");
+	let (dir_id, pending_count) = receiver.recv().unwrap();
+
+	if pending_count > 0 {
+	    let mut state = state_arc.lock().unwrap();
+	    (*state).pending_count_by_id.insert(dir_id, pending_count).unwrap();
+	} else if dir_id == FIRST_ID {
+	    *(root_collected.lock().unwrap()) = true;
+	    break;
+	} else {
+	    let mut state = state_arc.lock().unwrap();
+	    let mut parent_id = (*state).parent_by_id.get(&dir_id).unwrap().to_owned();
+	    let mut propagate = true;
+	    while propagate && parent_id != FIRST_ID {
+		// TODO update parent size
+		propagate = false;
+		let parent_pending = (*state).pending_count_by_id
+		    .get_mut(&parent_id)
+		    .unwrap();
+		*parent_pending -= 1;
+		if *parent_pending == 0 {
+		    propagate = true;
+		    parent_id = (*state).parent_by_id.get(&parent_id).unwrap().to_owned();
+		}
+	    }
+	    if parent_id == FIRST_ID {
+		let root_pending = (*state).pending_count_by_id
+		    .get_mut(&parent_id)
+		    .unwrap();
+		*root_pending -= 1;
+		if *root_pending == 0 {
+		    *(root_collected.lock().unwrap()) = true;
+		    break
+		}
+	    }
+	}
+    }
+
+    println!("Collector: I am quitting");
+
 }
