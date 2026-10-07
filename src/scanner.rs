@@ -1,19 +1,21 @@
 use std::collections::{HashMap, VecDeque};
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Result, Error, ErrorKind::{NotADirectory}};
 use std::fs::*;
-use std::io::ErrorKind::NotADirectory;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::sync::{Arc, Mutex, mpsc, mpsc::{Sender, Receiver}};
 
+use crate::inode::*;
+
 type InodeId = usize;
+type Pending = usize;
 
 pub const FIRST_ID: InodeId = 0;
 
 pub struct ScannerState {
     next_inode_id: InodeId,
-    pub inodes: HashMap<InodeId, Arc<Mutex<ScannerInode>>>,
-    parent_by_id: HashMap<InodeId, InodeId>,
+    inodes: HashMap<InodeId, Arc<Mutex<ScannerInode>>>,
+    parent_id_by_id: HashMap<InodeId, InodeId>,
     pending_count_by_id: HashMap<InodeId, usize>,
     work_queue: VecDeque<InodeId>,
 }
@@ -26,13 +28,13 @@ impl ScannerState {
     }
 }
 
-pub struct ScannerInode {
-    pub path: PathBuf,
-    pub size: u64,
-    pub detail: ScannerInodeDetail,
+struct ScannerInode {
+    path: PathBuf,
+    usage: DiskUsage,
+    detail: ScannerInodeDetail,
 }
 
-pub enum ScannerInodeDetail {
+enum ScannerInodeDetail {
     Reg,
     Sym,
     Dir(Vec<Arc<Mutex<ScannerInode>>>),
@@ -42,13 +44,13 @@ pub fn scan(path: &Path, worker_pool_size: usize) ->
     Result<Arc<Mutex<ScannerState>>> {
     let path_metadata = metadata(path)?;
     if !path_metadata.is_dir() {
-	panic!("Not a directory");
+	return Err(Error::from(NotADirectory));
     }
 
     let mut state = ScannerState {
 	next_inode_id: FIRST_ID,
 	inodes: HashMap::new(),
-	parent_by_id: HashMap::new(),
+	parent_id_by_id: HashMap::new(),
 	pending_count_by_id: HashMap::new(),
 	work_queue: VecDeque::new(),
     };
@@ -56,7 +58,7 @@ pub fn scan(path: &Path, worker_pool_size: usize) ->
     let root_id = state.get_next_inode_id();
     let root_inode = ScannerInode {
 	path: path.to_path_buf(),
-	size: 0,
+	usage: 0,
 	detail: ScannerInodeDetail::Dir(Vec::new()),
     };
     let root_inode_arc = Arc::new(Mutex::new(root_inode));
@@ -98,23 +100,23 @@ pub fn scan(path: &Path, worker_pool_size: usize) ->
 fn entry_to_init_inode(dir_entry: &DirEntry) -> ScannerInode {
     let entry_type = dir_entry.file_type().unwrap();
     let entry_path = dir_entry.path();
-    let mut entry_size = 0;
+    let mut entry_usage: u128 = 0;
     let mut entry_detail = ScannerInodeDetail::Reg;
 
     if entry_type.is_file() {
-	entry_size = dir_entry.metadata().unwrap().len();
+	entry_usage = u128::from(dir_entry.metadata().unwrap().len());
 	entry_detail = ScannerInodeDetail::Reg;
     } else if entry_type.is_symlink() {
-	entry_size = symlink_metadata(entry_path.clone()).unwrap().len();
+	entry_usage = u128::from(symlink_metadata(entry_path.clone()).unwrap().len());
 	entry_detail = ScannerInodeDetail::Sym;
     } else if entry_type.is_dir() {
-	entry_size = 0;
+	entry_usage = 0;
 	entry_detail = ScannerInodeDetail::Dir(Vec::new());
     }
 
     ScannerInode {
 	path: entry_path.clone(),
-	size: entry_size,
+	usage: entry_usage,
 	detail: entry_detail,
     }
 }
@@ -138,13 +140,11 @@ fn get_next_inode_id(state_arc: &Arc<Mutex<ScannerState>>) -> InodeId {
 
 fn scanner(state_arc: Arc<Mutex<ScannerState>>,
 	   root_collected: Arc<Mutex<bool>>,
-	   sender: Sender<(InodeId, usize)>) -> () {
+	   sender: Sender<(InodeId, Pending)>) -> () {
     loop {
-	println!("I'm a worker");
 	if *root_collected.lock().unwrap() {
 	    break
 	}
-	println!("Worker: root not collected");
 
 	/*
 	It is possible there are no task because some other thread is adding
@@ -154,7 +154,6 @@ fn scanner(state_arc: Arc<Mutex<ScannerState>>,
 	    Some((dir_id, dir_inode_arc)) => (dir_id, dir_inode_arc),
 	    None => continue,
 	};
-	println!("Worker: Found a task: {}", dir_id);
 
 	let mut dir_inode = dir_inode_arc.lock().unwrap();
 
@@ -165,21 +164,19 @@ fn scanner(state_arc: Arc<Mutex<ScannerState>>,
 	    let dir_entry_inode = entry_to_init_inode(&dir_entry);
 	    let dir_entry_id = get_next_inode_id(&state_arc);
 
-	    println!("Worker: I found an entry: {}", dir_entry.path().display());
-
 	    /*
 	    Some information can be added now
-	    - Update the size of parent
+	    - Update the usage of parent
 	    - Insert new inode into the record
 	    - Insert new parent-child relation
 	    - Insert new inode to children list of parent
 	     */
-	    dir_inode.size += dir_entry_inode.size;
+	    dir_inode.usage += dir_entry_inode.usage;
 	    let dir_entry_inode_arc = Arc::new(Mutex::new(dir_entry_inode));
 	    {
 		let mut state = (&state_arc).lock().unwrap();
 		(*state).inodes.insert(dir_entry_id, dir_entry_inode_arc.clone());
-		(*state).parent_by_id.insert(dir_entry_id, dir_id);
+		(*state).parent_id_by_id.insert(dir_entry_id, dir_id);
 	    }
 	    if let ScannerInodeDetail::Dir(children) = &mut (*dir_inode).detail {
 		children.push(dir_entry_inode_arc.clone());
@@ -213,11 +210,38 @@ fn scanner(state_arc: Arc<Mutex<ScannerState>>,
 
 fn collector(state_arc: Arc<Mutex<ScannerState>>,
 	     root_collected: Arc<Mutex<bool>>,
-	     receiver: Receiver<(InodeId, usize)>) -> () {
+	     receiver: Receiver<(InodeId, Pending)>) -> () {
     loop {
-	println!("I'm a collector");
 	let (dir_id, pending_count) = receiver.recv().unwrap();
 
+	/* When the collector receives a message, it is because a worker have
+	initialized an directory inode, and have reported the directory id, and
+	the number of subdirectories in the directory.
+	We remind the reader during the scanning process, the collector will
+	receive exactly one message for each directory in the scan space.
+	Furthermore, the order of the messages will behave in "pseudo BFS way",
+	that we will always receive a message for the parent directory before
+	the message for the subdirectory. This is a consequence of the internal
+	logic of the worker.
+
+	Branch 1: If the directory has non-zero subdirectory
+	The directory data is pending on the information of subdirectory.
+	We track the number of pending directory in scanner state.
+
+	Branch 2: The directory has no subdirectory, and is the root directory
+	This means the message received is the first message (the BFS invariant),
+	Because the root does not have subdirectory, the scan is complete.
+	Notify all worker threads through mutex.
+
+	Branch 3: The directory has no subdirectory, and is not the root
+	This means a "leaf directory", aka a directory with no more subdirectory
+	has finished scanning. The information collected by the leaf directory
+	can now be propagated back to its parent. The parent directory is pending
+	on one less subtask.
+	Completion may propagate to grandparent, a loop is used to account for
+	that. This goes all the way until the parent is the root of the scan,
+	which needs some manual processing.
+	 */
 	if pending_count > 0 {
 	    let mut state = state_arc.lock().unwrap();
 	    (*state).pending_count_by_id.insert(dir_id, pending_count).unwrap();
@@ -226,33 +250,74 @@ fn collector(state_arc: Arc<Mutex<ScannerState>>,
 	    break;
 	} else {
 	    let mut state = state_arc.lock().unwrap();
-	    let mut parent_id = (*state).parent_by_id.get(&dir_id).unwrap().to_owned();
+
+	    let mut usage_to_add = (*state).inodes.get(&dir_id).unwrap().lock().unwrap().usage;
+	    let mut parent_id = (*state).parent_id_by_id.get(&dir_id).unwrap().to_owned();
+	    let mut parent_inode_arc = (*state).inodes.get(&parent_id).unwrap().clone();
+	    let mut parent_pending = (*state).pending_count_by_id.get_mut(&parent_id).unwrap();
 	    let mut propagate = true;
 	    while propagate && parent_id != FIRST_ID {
-		// TODO update parent size
+
+		(*parent_inode_arc).lock().unwrap().usage += usage_to_add;
+		(*parent_pending) -= 1;
+
 		propagate = false;
-		let parent_pending = (*state).pending_count_by_id
-		    .get_mut(&parent_id)
-		    .unwrap();
-		*parent_pending -= 1;
-		if *parent_pending == 0 {
+
+		if (*parent_pending) == 0 {
 		    propagate = true;
-		    parent_id = (*state).parent_by_id.get(&parent_id).unwrap().to_owned();
+		    usage_to_add = (*parent_inode_arc).lock().unwrap().usage;
+		    parent_id = (*state).parent_id_by_id.get(&parent_id).unwrap().to_owned();
+		    parent_inode_arc = (*state).inodes.get(&parent_id).unwrap().clone();
+		    parent_pending = (*state).pending_count_by_id.get_mut(&parent_id).unwrap();
 		}
 	    }
 	    if parent_id == FIRST_ID {
-		let root_pending = (*state).pending_count_by_id
-		    .get_mut(&parent_id)
-		    .unwrap();
-		*root_pending -= 1;
-		if *root_pending == 0 {
+		(*parent_inode_arc).lock().unwrap().usage += usage_to_add;
+		(*parent_pending) -= 1;
+
+		if *parent_pending == 0 {
 		    *(root_collected.lock().unwrap()) = true;
 		    break
 		}
 	    }
 	}
     }
+}
 
-    println!("Collector: I am quitting");
 
+impl From<Arc<Mutex<ScannerInode>>> for Inode {
+    fn from(scanner_inode_arc: Arc<Mutex<ScannerInode>>) -> Self {
+	let scanner_inode = scanner_inode_arc.lock().unwrap();
+	let path = scanner_inode.path.clone();
+	let usage = scanner_inode.usage;
+
+	let detail = match &(*scanner_inode).detail {
+	    ScannerInodeDetail::Reg => InodeDetail::Reg,
+	    ScannerInodeDetail::Sym => InodeDetail::Sym,
+	    ScannerInodeDetail::Dir(children) => {
+		let mut new_children = Vec::new();
+		for child in children {
+		    new_children.push(Inode::from(child.to_owned()));
+		}
+		new_children.sort_by_key(|inode| inode.usage);
+		new_children.reverse();
+		InodeDetail::Dir(new_children)
+	    },
+	};
+
+	return Inode {
+	    path,
+	    usage,
+	    detail,
+	}
+    }
+}
+
+pub fn path_to_inode(path: &Path, worker_pool_size: usize) -> Inode {
+    let scan_final_state_arc = scan(path, worker_pool_size).unwrap();
+    let scan_final_state = scan_final_state_arc.lock().unwrap();
+    let root_scanner_inode_arc = scan_final_state.inodes.get(&FIRST_ID)
+	.unwrap()
+	.to_owned();
+    Inode::from(root_scanner_inode_arc)
 }
