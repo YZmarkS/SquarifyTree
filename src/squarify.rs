@@ -6,7 +6,7 @@ use ratatui::symbols::line::VERTICAL;
 use crate::scanner::*;
 use crate::inode::*;
 
-type Measure = u64;
+pub type Measure = u16;
 
 pub enum StackDirection {
     Vertical,
@@ -17,7 +17,7 @@ const HEIGHT_TO_WIDTH_RATIO: Measure = 2;
 const CELL_MIN_MEASURE: Measure = 2;
 const SPLIT_THRESHOLD: Measure = 4;
 
-fn is_landscape(width: Measure, height: Measure) -> bool {
+pub fn is_landscape(width: Measure, height: Measure) -> bool {
     height * HEIGHT_TO_WIDTH_RATIO <= width
 }
 
@@ -30,26 +30,18 @@ fn calc_stack_breadth(usage: DiskUsage,
     cmp::max(rounded_breadth, CELL_MIN_MEASURE)
 }
 
-fn calc_stack_spans(inodes: &[Inode],
+fn calc_stack_spans(inodes: &[Rc<Inode>],
 		    total_span: Measure) -> Vec<Measure> {
     let total_usage: DiskUsage = inodes.iter().map(|inode| inode.usage).sum();
     let mut spans = Vec::new();
 
     let mut remaining_span = total_span;
 
-    println!("total usage: {}, total_span: {}",
-	     total_usage, total_span);
-
     for inode in inodes {
 	let inode_usage = inode.usage;
 	let precise_span = (total_span as f64) * (inode_usage as f64) / (total_usage as f64);
 	let truncated_span = precise_span.trunc() as Measure;
 
-	println!("Inode: {}, Inode usage: {}, precise: {}, truncated: {}",
-		 inode.path.file_name().unwrap().display(),
-		 inode_usage,
-		 precise_span,
-		 truncated_span);
 	spans.push(truncated_span);
 	remaining_span -= truncated_span;
     }
@@ -96,18 +88,18 @@ pub enum LayoutDetail {
 }
 
 pub struct SplitDetail {
-    breadth: Measure,
-    spans: Vec<Measure>,
-    other: Box<SquarifyLayout>,
+    pub breadth: Measure,
+    pub spans: Vec<Measure>,
+    pub other: Box<Squarify>,
 }
 
-pub struct SquarifyLayout {
-    width: Measure,
-    height: Measure,
-    detail: LayoutDetail,
+pub struct Squarify {
+    pub width: Measure,
+    pub height: Measure,
+    pub detail: LayoutDetail,
 }
 
-struct StackInfo {
+pub struct StackInfo {
     breadth: Measure,
     other_breadth: Measure,
     spans: Vec<Measure>,
@@ -115,7 +107,7 @@ struct StackInfo {
     worst_ratio: f64,
 }
 
-fn calc_stack_info(inodes: &[Inode], take: usize,
+fn calc_stack_info(inodes: &[Rc<Inode>], take: usize,
 		   total_usage: DiskUsage,
 		   total_breadth: Measure, total_span: Measure,
 		   direction: &StackDirection)
@@ -138,15 +130,14 @@ fn calc_stack_info(inodes: &[Inode], take: usize,
     }
 }
 
-
-pub fn squarify(inodes: &[Inode],
-		width: Measure, height: Measure) -> SquarifyLayout {
+pub fn squarify(inodes: &[Rc<Inode>],
+		width: Measure, height: Measure) -> Squarify {
 
     let is_landscape = is_landscape(width, height);
     let total_breadth = if is_landscape { width } else { height };
 
     if inodes.len() == 0 || total_breadth < SPLIT_THRESHOLD {
-	return SquarifyLayout {
+	return Squarify {
 	    width,
 	    height,
 	    detail: LayoutDetail::Whole,
@@ -185,7 +176,11 @@ pub fn squarify(inodes: &[Inode],
 	}
     }
 
-    let corrected_other_breadth = cmp::max(stack_info.other_breadth, CELL_MIN_MEASURE);
+    let corrected_other_breadth = if take < inodes.len() {
+	cmp::max(stack_info.other_breadth, CELL_MIN_MEASURE)
+    } else {
+	0
+    };
     let corrected_breadth = total_breadth - corrected_other_breadth;
 
     let (sub_width, sub_height) = if is_landscape {
@@ -193,26 +188,33 @@ pub fn squarify(inodes: &[Inode],
     } else {
 	(width, height - corrected_breadth)
     };
+
     let sub_layout_box = Box::new(squarify(&(inodes[take..]),
 					   sub_width, sub_height));
 
-    SquarifyLayout {
+    Squarify {
 	width,
 	height,
-	detail: LayoutDetail::Split( SplitDetail {
-	    breadth: stack_info.breadth,
+	detail: LayoutDetail::Split(SplitDetail {
+	    breadth: corrected_breadth,
 	    spans: stack_info.spans,
 	    other: sub_layout_box,
 	}),
     }
 }
 
-pub fn print_layout(layout: &SquarifyLayout, indent: u8) {
+pub fn print_layout(layout: &Squarify, indent: u8) {
     for _ in 0..indent {
 	print!("    ")
     }
-    println!("Width: {}, Height: {}", layout.width, layout.height);
     if let LayoutDetail::Split(detail) = &layout.detail {
+	println!("Orientation: {}, Width: {}, Height: {}, Breadth: {} ",
+		 if is_landscape(layout.width, layout.height) {
+		     "Landscape"
+		 } else {
+		     "Portrait"
+		 },
+		 layout.width, layout.height, detail.breadth);
 	for span in &detail.spans {
 	    for _ in 0..indent  {
 		print!("    ")

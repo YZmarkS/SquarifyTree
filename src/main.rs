@@ -1,6 +1,7 @@
-use std::path::Path;
+use std::{io, path::Path};
 
 use inode::InodeDetail;
+use layout::layout_to_rects;
 use ratatui::{
     prelude::*,
     layout::{Constraint, Layout, Spacing},
@@ -12,55 +13,30 @@ use ratatui::{
 mod scanner;
 mod squarify;
 mod inode;
+mod layout;
+mod logic;
 use scanner::*;
 use squarify::*;
 use inode::*;
+use logic::*;
+
+fn main() -> io::Result<()> {
 
 
-// fn main() -> color_eyre::Result<()> {
-//     color_eyre::install()?;
-//     ratatui::run(app)?;
-//     Ok(())
-// }
+    // let mut state = AppState {
+    // 	path: Path::new("/home/lemon/Projects/SquarifyTree/C/src"),
+    // 	worker_count: 10
+    // };
 
-// fn app(terminal: &mut DefaultTerminal) -> std::io::Result<()> {
-//     loop {
-//         terminal.draw(render)?;
-//         if crossterm::event::read()?.is_key_press() {
-//             break Ok(());
-//         }
-//     }
-// }
+    just_calc();
 
-// fn render(frame: &mut Frame) {
-//     let layout = Layout::default()
-// 	.direction(Direction::Vertical)
-// 	.constraints(vec![
-//             Constraint::Length(5),
-//             Constraint::Length(5),
-// 	])
-// 	.spacing(Spacing::Overlap(1))
-// 	.split(frame.area());
-//     frame.render_widget(
-// 	Paragraph::new("Top long long long long long long long long long text")
-//             .block(Block::new()
-// 		   .borders(Borders::ALL)
-// 		   .merge_borders(MergeStrategy::Exact)),
-// 	layout[0]);
-//     frame.render_widget(
-// 	Paragraph::new("Bottom long text")
-//             .block(Block::new()
-// 		   .borders(Borders::ALL)
-// 		   .merge_borders(MergeStrategy::Exact)),
-// 	layout[1]);
+    // ratatui::run(|terminal| state.run(terminal)).unwrap();
+    Ok(())
+    // layout_to_rects(&rects, &squarify,
 
+}
 
-// }
-
-fn main() {
-
-    println!("Hello, world!");
-
+fn just_calc() {
     let path = Path::new("/home/lemon/Projects/SquarifyTree/C/src");
     let worker_count = 10;
 
@@ -68,9 +44,60 @@ fn main() {
     print_inodes(&root_inode, 0);
 
     if let InodeDetail::Dir(children) = &(root_inode.detail) {
-	let layout = squarify(&children[..], 200, 50);
+	let layout = squarify(&children[..], 209 - 1, 51 - 1);
 	print_layout(&layout, 0);
     }
+}
 
-    println!("DONE!");
+// struct AppState<'app> {
+
+
+
+
+//     path: &'app Path,
+//     worker_count: usize,
+//     all_inodes: Option<Vec<Inode>>,
+//     curr_inodes: Option<[Inode]>,
+
+
+// }
+
+impl AppState {
+    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+	loop {
+	    terminal.draw(|frame| self.draw(frame))?;
+	    if crossterm::event::read()?.is_key_press() {
+		break;
+            }
+	}
+	Ok(())
+    }
+
+    fn draw(&mut self, frame: &mut Frame) {
+
+	let root_inode = path_to_inode(self.path, self.worker_count);
+
+	let area = frame.area();
+
+	print!("{}, {}", area.width, area.height);
+
+	let squarify = if let InodeDetail::Dir(children) = &(root_inode.detail) {
+	    squarify(&children[..], area.width - 1, area.height - 1)
+	} else {
+	    panic!();
+	};
+
+	let mut rects: Vec<Rect> = Vec::new();
+	layout_to_rects(&mut rects, &squarify, frame.area());
+
+	for rect in rects {
+	    frame.render_widget(
+		Block::new()
+		    .borders(Borders::ALL)
+		    .merge_borders(MergeStrategy::Exact),
+		rect
+	    );
+	}
+
+    }
 }

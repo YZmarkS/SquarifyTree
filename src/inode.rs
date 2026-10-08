@@ -1,3 +1,4 @@
+use std::{rc::Rc};
 use std::path::{PathBuf};
 
 pub type DiskUsage = u128;
@@ -11,7 +12,7 @@ pub struct Inode {
 pub enum InodeDetail {
     Reg,
     Sym,
-    Dir(Vec<Inode>),
+    Dir(Vec<Rc<Inode>>),
 }
 
 pub fn print_inodes(inode: &Inode, indent: u8) -> () {

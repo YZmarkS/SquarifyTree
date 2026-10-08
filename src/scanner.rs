@@ -1,3 +1,4 @@
+use std::rc::{Rc};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Result, Error, ErrorKind::{NotADirectory}};
 use std::fs::*;
@@ -297,7 +298,7 @@ impl From<Arc<Mutex<ScannerInode>>> for Inode {
 	    ScannerInodeDetail::Dir(children) => {
 		let mut new_children = Vec::new();
 		for child in children {
-		    new_children.push(Inode::from(child.to_owned()));
+		    new_children.push(Rc::new(Inode::from(child.to_owned())));
 		}
 		new_children.sort_by_key(|inode| inode.usage);
 		new_children.reverse();
