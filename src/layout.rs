@@ -135,10 +135,10 @@ pub fn make_cell_list(rects: &Vec<Rect>,
     }
     cells.push(Cell {
 	rect: rects[rects.len() - 1].to_owned(),
-	content: if rects.len() == inodes.len() {
-	    Inode(inodes[starting_index + inodes.len() - 1].clone())
+	content: if starting_index + rects.len() == inodes.len() {
+	    Inode(inodes[starting_index + rects.len() - 1].clone())
 	} else {
-	    Other(starting_index + inodes.len() - 1)
+	    Other(starting_index + rects.len() - 1)
 	}
     });
     cells
