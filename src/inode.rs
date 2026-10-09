@@ -15,6 +15,7 @@ pub enum InodeDetail {
     Dir(Vec<Rc<Inode>>),
 }
 
+#[allow(unused)]
 pub fn print_inodes(inode: &Inode, indent: u8) -> () {
     for _ in 0..indent {
 	print!("    ");

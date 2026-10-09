@@ -1,9 +1,6 @@
 use std::cmp;
 use std::rc::Rc;
-use StackDirection::Horizontal;
-use ratatui::symbols::line::VERTICAL;
 
-use crate::scanner::*;
 use crate::inode::*;
 
 pub type Measure = u16;
@@ -100,6 +97,7 @@ pub struct Squarify {
 }
 
 pub struct StackInfo {
+    #[allow(unused)]
     breadth: Measure,
     other_breadth: Measure,
     spans: Vec<Measure>,
@@ -203,6 +201,7 @@ pub fn squarify(inodes: &[Rc<Inode>],
     }
 }
 
+#[allow(unused)]
 pub fn print_layout(layout: &Squarify, indent: u8) {
     for _ in 0..indent {
 	print!("    ")

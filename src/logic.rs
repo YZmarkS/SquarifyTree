@@ -1,17 +1,15 @@
-use std::ffi::os_str::Display;
 use std::path::Path;
-use std::{cmp, collections::HashMap, io::ErrorKind, path::PathBuf, rc::Rc};
+use std::{cmp, path::PathBuf, rc::Rc};
 use Status::{CalcNewLayout, Displaying, NeedRefresh};
 use crossterm::event::Event;
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout};
-use ratatui::style::{Color, Style, Styled, Stylize};
+use ratatui::style::{Color, Style};
 use ratatui::symbols::merge::MergeStrategy;
 use ratatui::widgets::{Block, Paragraph, Widget};
 use ratatui::{DefaultTerminal, prelude::Rect};
 use crate::{inode::*, scanner::scan_directory_with_pool, squarify};
-use crate::squarify::*;
 use crate::layout::*;
 
 pub enum Status {
@@ -20,6 +18,7 @@ pub enum Status {
     Displaying,
 }
 
+#[allow(unused)]
 pub struct AppState {
     status: Status,
     path: PathBuf,

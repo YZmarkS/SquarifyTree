@@ -1,4 +1,4 @@
-use std::{cmp, collections::HashMap, path::{PathBuf}, rc::{Rc}};
+use std::{cmp, collections::HashMap, rc::{Rc}};
 use ratatui::{prelude::*, layout::*};
 
 use crate::inode::*;
@@ -23,10 +23,11 @@ fn squarify_to_rects_aux(squarify: &Squarify,
 	},
 	LayoutDetail::Split(detail) => {
 	    let is_landscape = is_landscape(squarify.width, squarify.height);
+	    let breadth = detail.breadth;
 	    let other_breadth = if is_landscape {
-		squarify.width - detail.breadth
+		squarify.width - breadth
 	    } else {
-		squarify.height - detail.breadth
+		squarify.height - breadth
 	    };
 
 	    let split_constraints =

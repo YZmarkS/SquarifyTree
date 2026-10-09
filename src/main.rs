@@ -1,23 +1,11 @@
 use std::{io, path::Path};
 
-use inode::InodeDetail;
-use layout::squarify_to_rects;
-use ratatui::{
-    prelude::*,
-    layout::{Constraint, Layout, Spacing},
-    symbols::merge::MergeStrategy,
-    widgets::{Paragraph, Block, Borders},
-    DefaultTerminal, Frame,
-};
-
 mod scanner;
 mod squarify;
 mod inode;
 mod layout;
 mod logic;
-use scanner::*;
 use squarify::*;
-use inode::*;
 use logic::*;
 
 fn main() -> io::Result<()> {
@@ -34,6 +22,7 @@ fn main() -> io::Result<()> {
 
 }
 
+#[allow(unused)]
 fn just_calc() {
 
     // let path = Path::new("/home/lemon/Projects/SquarifyTree/C/src");
