@@ -1,6 +1,7 @@
+use std::io::ErrorKind::*;
 use std::rc::{Rc};
 use std::collections::{HashMap, VecDeque};
-use std::io::{Result, Error, ErrorKind::{NotADirectory}};
+use std::io::{Error, ErrorKind::{NotADirectory}};
 use std::fs::*;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -41,12 +42,48 @@ enum ScannerInodeDetail {
     Dir(Vec<Arc<Mutex<ScannerInode>>>),
 }
 
-pub fn scan(path: &Path, worker_pool_size: usize) ->
-    Result<Arc<Mutex<ScannerState>>> {
-    let path_metadata = metadata(path)?;
-    if !path_metadata.is_dir() {
-	return Err(Error::from(NotADirectory));
+pub fn scan_single_threaded(path: &Path) -> std::io::Result<Rc<Inode>> {
+    use crate::inode::InodeDetail::*;
+
+    let inode_path = path.to_path_buf();
+    let metadata = symlink_metadata(path)?;
+
+    if metadata.is_file() {
+	Ok(Rc::new( Inode {
+	    path: inode_path,
+	    usage: DiskUsage::from(metadata.len()),
+	    detail: Reg
+	}))
+    } else if metadata.is_symlink() {
+	Ok(Rc::new( Inode {
+	    path: inode_path,
+	    usage: DiskUsage::from(metadata.len()),
+	    detail: Sym,
+	}))
+    } else { // metadata.is_dir()
+	let mut inode_usage: DiskUsage = 0;
+	let mut children = Vec::new();
+	for dir_entry in read_dir(path)? {
+	    let dir_entry = match dir_entry {
+		Ok(dir_entry) => dir_entry,
+		Err(_) => continue,
+	    };
+	    let child = scan_single_threaded(&dir_entry.path())?;
+	    inode_usage += child.usage;
+	    children.push(child);
+	}
+	children.sort_by_key(|inode_rc| (*inode_rc).usage);
+	children.reverse();
+	Ok(Rc::new( Inode {
+	    path: inode_path,
+	    usage: inode_usage,
+	    detail: Dir(children),
+	}))
     }
+}
+
+pub fn scan_multi_threaded(path: &Path, worker_pool_size: usize) ->
+    std::io::Result<Arc<Mutex<ScannerState>>> {
 
     let mut state = ScannerState {
 	next_inode_id: FIRST_ID,
@@ -63,7 +100,6 @@ pub fn scan(path: &Path, worker_pool_size: usize) ->
 	detail: ScannerInodeDetail::Dir(Vec::new()),
     };
     let root_inode_arc = Arc::new(Mutex::new(root_inode));
-
     state.inodes.insert(root_id, root_inode_arc);
     state.work_queue.push_back(root_id);
 
@@ -101,14 +137,14 @@ pub fn scan(path: &Path, worker_pool_size: usize) ->
 fn entry_to_init_inode(dir_entry: &DirEntry) -> ScannerInode {
     let entry_type = dir_entry.file_type().unwrap();
     let entry_path = dir_entry.path();
-    let mut entry_usage: u128 = 0;
+    let mut entry_usage: DiskUsage = 0;
     let mut entry_detail = ScannerInodeDetail::Reg;
 
     if entry_type.is_file() {
-	entry_usage = u128::from(dir_entry.metadata().unwrap().len());
+	entry_usage = DiskUsage::from(dir_entry.metadata().unwrap().len());
 	entry_detail = ScannerInodeDetail::Reg;
     } else if entry_type.is_symlink() {
-	entry_usage = u128::from(symlink_metadata(entry_path.clone()).unwrap().len());
+	entry_usage = DiskUsage::from(symlink_metadata(entry_path.clone()).unwrap().len());
 	entry_detail = ScannerInodeDetail::Sym;
     } else if entry_type.is_dir() {
 	entry_usage = 0;
@@ -286,8 +322,10 @@ fn collector(state_arc: Arc<Mutex<ScannerState>>,
 }
 
 
-impl From<Arc<Mutex<ScannerInode>>> for Inode {
-    fn from(scanner_inode_arc: Arc<Mutex<ScannerInode>>) -> Self {
+impl TryFrom<Arc<Mutex<ScannerInode>>> for Inode {
+    type Error = std::sync::PoisonError<ScannerInode>;
+    fn try_from(scanner_inode_arc: Arc<Mutex<ScannerInode>>)
+		-> Result<Self, std::sync::PoisonError<ScannerInode>> {
 	let scanner_inode = scanner_inode_arc.lock().unwrap();
 	let path = scanner_inode.path.clone();
 	let usage = scanner_inode.usage;
@@ -295,30 +333,48 @@ impl From<Arc<Mutex<ScannerInode>>> for Inode {
 	let detail = match &(*scanner_inode).detail {
 	    ScannerInodeDetail::Reg => InodeDetail::Reg,
 	    ScannerInodeDetail::Sym => InodeDetail::Sym,
-	    ScannerInodeDetail::Dir(children) => {
-		let mut new_children = Vec::new();
-		for child in children {
-		    new_children.push(Rc::new(Inode::from(child.to_owned())));
+	    ScannerInodeDetail::Dir(rc_children) => {
+		let mut children = Vec::new();
+		for rc_child in rc_children {
+		    let inode = Inode::try_from(rc_child.to_owned())?;
+		    children.push(Rc::new(inode));
 		}
-		new_children.sort_by_key(|inode| inode.usage);
-		new_children.reverse();
-		InodeDetail::Dir(new_children)
+		children.sort_by_key(|inode| inode.usage);
+		children.reverse();
+		InodeDetail::Dir(children)
 	    },
 	};
 
-	return Inode {
+	return Ok(Inode {
 	    path,
 	    usage,
 	    detail,
-	}
+	})
     }
 }
 
-pub fn path_to_inode(path: &Path, worker_pool_size: usize) -> Inode {
-    let scan_final_state_arc = scan(path, worker_pool_size).unwrap();
-    let scan_final_state = scan_final_state_arc.lock().unwrap();
-    let root_scanner_inode_arc = scan_final_state.inodes.get(&FIRST_ID)
-	.unwrap()
-	.to_owned();
-    Inode::from(root_scanner_inode_arc)
+pub fn scan_directory_with_pool(path: &Path, worker_pool_size: usize)
+			    -> std::io::Result<Rc<Inode>> {
+    let path_metadata = symlink_metadata(path)?;
+    if !path_metadata.is_dir() {
+	return Err(Error::from(NotADirectory));
+    }
+
+    if worker_pool_size == 1 || worker_pool_size == 2 {
+	scan_single_threaded(path)
+    } else {
+	let end_state_arc = scan_multi_threaded(path, worker_pool_size - 1)?;
+	let end_state = match end_state_arc.lock() {
+	    Ok(end_state) => Ok(end_state),
+	    Err(_) => Err(Error::from(Deadlock)),
+	}?;
+	let root_inode_arc = match end_state.inodes.get(&FIRST_ID) {
+	    Some(arc) => Ok(arc),
+	    None => Err(Error::from(NotFound))
+	}?.to_owned();
+	match Inode::try_from(root_inode_arc) {
+	    Ok(inode) => Ok(Rc::new(inode)),
+	    Err(_) => Err(Error::from(Deadlock)),
+	}
+    }
 }

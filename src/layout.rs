@@ -4,12 +4,19 @@ use ratatui::{prelude::*, layout::*};
 use crate::inode::*;
 use crate::squarify::*;
 
-pub fn layout_to_rects(squarify: &Squarify,
-		       canvas: Rect) -> Vec<Rect> {
+pub fn squarify_to_rects(squarify: &Squarify,
+			 canvas: Rect) -> Vec<Rect> {
+    let mut list = squarify_to_rects_aux(squarify, canvas);
+    list.reverse();
+    list
+}
+
+fn squarify_to_rects_aux(squarify: &Squarify,
+			 canvas: Rect) -> Vec<Rect> {
     match &(squarify.detail) {
 	LayoutDetail::Whole => {
 	    let mut rects = Vec::new();
-	    if squarify.width != 0 && squarify.height != 0 {
+	    if 0 < squarify.width && 0 < squarify.height {
 		rects.push(canvas);
 	    }
 	    rects
@@ -44,7 +51,7 @@ pub fn layout_to_rects(squarify: &Squarify,
 		.constraints(stack_constrains_iter)
 		.split(stack);
 
-	    let mut sub_rects = layout_to_rects(&detail.other, other);
+	    let mut sub_rects = squarify_to_rects_aux(&detail.other, other);
 	    for stack_rect in stack_rects.iter().rev() {
 		sub_rects.push(*stack_rect);
 	    }
@@ -84,6 +91,17 @@ pub struct Cell {
 pub enum CellContent {
     Inode(Rc<Inode>),
     Other(usize),
+    Nothing,
+}
+
+pub fn get_cell_content_name(cell: &Cell) -> String {
+    match &cell.content {
+	CellContent::Inode(inode) => inode.clone()
+	    .path.file_name().unwrap()
+	    .to_string_lossy().into_owned(),
+	CellContent::Other(_) => "Other".to_string(),
+	CellContent::Nothing => "Nothing".to_string(),
+    }
 }
 
 pub type CellId = usize;
@@ -95,25 +113,32 @@ pub struct Neighbours {
     pub right: Option<CellId>,
 }
 
-/*
-The function will consume as many
-*/
-fn make_cell_list(rects: &Vec<Rect>,
-		  inodes: Vec<Rc<Inode>>,
-		  starting_index: usize) -> Vec<Cell> {
+pub fn make_cell_list(rects: &Vec<Rect>,
+		      inodes: &Vec<Rc<Inode>>,
+		      starting_index: usize) -> Vec<Cell> {
+    assert!(0 < rects.len());
+    use CellContent::{*};
     let mut cells: Vec<Cell> = Vec::new();
+    if inodes.len() == 0 {
+	cells.push(Cell {
+	    rect: rects[0],
+	    content: Nothing,
+	});
+	return cells;
+    }
+
     for i in 0..(rects.len() - 1) {
 	cells.push(Cell {
 	    rect: rects[i].to_owned(),
-	    content: CellContent::Inode(inodes[starting_index + i].clone()),
+	    content: Inode(inodes[starting_index + i].clone()),
 	});
     }
     cells.push(Cell {
 	rect: rects[rects.len() - 1].to_owned(),
 	content: if rects.len() == inodes.len() {
-	    CellContent::Inode(inodes[inodes.len() - 1].clone())
+	    Inode(inodes[starting_index + inodes.len() - 1].clone())
 	} else {
-	    CellContent::Other(inodes.len() - 1)
+	    Other(starting_index + inodes.len() - 1)
 	}
     });
     cells
@@ -122,13 +147,14 @@ fn make_cell_list(rects: &Vec<Rect>,
 type CellIdByCoord = HashMap<Measure, Vec<CellId>>;
 
 fn push_by_key<K: Eq + core::hash::Hash, V>
-    (map: &mut HashMap<K, Vec<V>>, key: K, value: V) {
+    (map: &mut HashMap<K, Vec<V>>, key: K, value: V)
+{
     if map.contains_key(&key) {
 	map.get_mut(&key).unwrap().push(value);
     } else {
 	map.insert(key, vec![value]);
     }
-    }
+}
 
 enum Ends {
     TopBottom,
@@ -156,22 +182,23 @@ fn find_most_overlapping(cells: &Vec<Cell>,
 			 cell: &Cell,
 			 ends_to_compare_by: Ends) -> Option<CellId> {
 
+    let candidates = candidates?;
+
     let mut best_candidate = None;
     let mut best_overlap = -1;
     let mut best_offset = i32::MAX;
 
-    if let None = candidates {
-	return best_candidate
-    }
-    for candidate in candidates.unwrap() {
+    let cell_interval = match ends_to_compare_by {
+	Ends::TopBottom => y_interval(cell.rect),
+	Ends::LeftRight => x_interval(cell.rect),
+    };
+
+    for candidate in candidates  {
 	let candidate_interval = match ends_to_compare_by {
 	    Ends::TopBottom => y_interval(cells[*candidate].rect),
 	    Ends::LeftRight => x_interval(cells[*candidate].rect),
 	};
-	let cell_interval = match ends_to_compare_by {
-	    Ends::TopBottom => y_interval(cell.rect),
-	    Ends::LeftRight => x_interval(cell.rect),
-	};
+
 	let overlap = calc_overlap(candidate_interval, cell_interval);
 	let offset = calc_offset(candidate_interval, cell_interval);
 
@@ -186,9 +213,11 @@ fn find_most_overlapping(cells: &Vec<Cell>,
     best_candidate
 }
 
-fn relate_cells(cells: &Vec<Cell>) -> Vec<Neighbours> {
+pub fn relate_cells(cells: &Vec<Cell>) -> Vec<Neighbours> {
     use Ends::*;
     let mut neighbours = Vec::new();
+
+    eprintln!("{:?}", cells[0].rect);
 
     let (by_top, by_bottom) = group_by_endpoint(cells, TopBottom);
     let (by_left, by_right) = group_by_endpoint(cells, LeftRight);
@@ -197,11 +226,10 @@ fn relate_cells(cells: &Vec<Cell>) -> Vec<Neighbours> {
 	let (top, bottom) = y_interval(cell.rect);
 	let (left, right) = x_interval(cell.rect);
 
-	let top_neighbour = find_most_overlapping(cells, by_bottom.get(&top), cell, LeftRight);
-	let bottom_neighbour = find_most_overlapping(cells, by_top.get(&bottom), cell, LeftRight);
-
-	let left_neighbour = find_most_overlapping(cells, by_right.get(&left), cell, TopBottom);
-	let right_neighbour = find_most_overlapping(cells, by_left.get(&right), cell, TopBottom);
+	let top_neighbour = find_most_overlapping(cells, by_bottom.get(&(top + 1)), cell, LeftRight);
+	let bottom_neighbour = find_most_overlapping(cells, by_top.get(&(bottom - 1)), cell, LeftRight);
+	let left_neighbour = find_most_overlapping(cells, by_right.get(&(left + 1)), cell, TopBottom);
+	let right_neighbour = find_most_overlapping(cells, by_left.get(&(right - 1)), cell, TopBottom);
 
 	neighbours.push(Neighbours {
 	    top: top_neighbour,
