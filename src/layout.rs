@@ -217,8 +217,6 @@ pub fn relate_cells(cells: &Vec<Cell>) -> Vec<Neighbours> {
     use Ends::*;
     let mut neighbours = Vec::new();
 
-    eprintln!("{:?}", cells[0].rect);
-
     let (by_top, by_bottom) = group_by_endpoint(cells, TopBottom);
     let (by_left, by_right) = group_by_endpoint(cells, LeftRight);
 
