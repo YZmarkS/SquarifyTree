@@ -1,0 +1,19 @@
+#+TITLE: ~ncdu~ Features
+
+- [X] Move up
+- [X] Move down
+- [X] Open directory
+- [X] Open parent directory
+- [-] Sort by [1/4]
+  - [ ] Name
+  - [X] Size
+  - [ ] Items
+  - [ ] mtime :: I don't know if I care about mtime?
+- [ ] Delete selection
+- [ ] Toggle dirs before files
+- [-] Percentage or Graph: Not really applicable, because we are always displaying graph
+- [ ] Toggle display hard link size 
+- [ ] Toggle Child count: This is an option, we can sort by number of child size
+- [ ] Toggle Last mtime: 
+- [ ] Toggle excluded files
+- [ ] Recalculate
