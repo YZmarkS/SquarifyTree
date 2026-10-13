@@ -5,12 +5,17 @@ mod squarify;
 mod inode;
 mod layout;
 mod logic;
+mod render;
 use squarify::*;
 use logic::*;
 
 fn main() -> io::Result<()> {
 
-    let path = Path::new("/home/lemon/Projects/SquarifyTree/C");
+    // for arg in std::env::args() {
+    // 	println!("{arg}");
+    // }
+
+    let path = Path::new("/home/lemon");
     let worker_pool_size = 10;
 
     let mut state = path_to_app_state(path, worker_pool_size)?;

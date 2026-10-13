@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::path::Path;
 use std::{cmp, path::PathBuf, rc::Rc};
 use Status::{CalcNewLayout, Displaying, NeedRefresh};
@@ -12,33 +13,50 @@ use ratatui::{DefaultTerminal, prelude::Rect};
 use crate::{inode::*, scanner::scan_directory_with_pool, squarify};
 use crate::layout::*;
 
+#[derive(Clone)]
+pub struct HistoryEntry {
+    pub directory: Rc<RefCell<Inode>>,
+    pub starting_index: usize,
+    pub selected: CellId,
+}
+
 pub enum Status {
+    Scanning(), // this needs working
     NeedRefresh,
     CalcNewLayout(Rect),
-    Displaying,
+    Displaying(Vec<Cell>),
 }
+
+pub struct State {
+    pub status: Status,
+    pub root_path: PathBuf,
+    pub root_inode: Rc<RefCell<Inode>>,
+    pub history: Vec<HistoryEntry>,
+    pub current: HistoryEntry,
+}
+
 
 #[allow(unused)]
 pub struct AppState {
-    status: Status,
-    path: PathBuf,
-    worker_pool_size: usize,
+    pub status: Status,
+    pub path: PathBuf,
+    pub worker_pool_size: usize,
 
-    root_inode: Rc<Inode>,
+    pub root_inode: Rc<Inode>,
 
-    cells: Vec<Cell>,
-    neighbours: Vec<Neighbours>,
-    on: CellId,
+    pub cells: Vec<Cell>,
+    pub neighbours: Vec<Neighbours>,
+    pub on: CellId,
 
-    history: Vec<HistoryEntry>,
-    now: HistoryEntry,
+    pub history: Vec<HistoryEntry>,
+    pub now: HistoryEntry,
 }
 
-pub struct HistoryEntry {
-    directory: Rc<Inode>,
-    starting_index: usize,
-    was_on: CellId,
-}
+// pub struct HistoryEntry {
+//     pub directory: Rc<Inode>,
+//     pub starting_index: usize,
+//     pub was_on: CellId,
+// }
 
 pub fn path_to_app_state(path: &Path, worker_pool_size: usize) -> std::io::Result<AppState> {
     let root_inode = scan_directory_with_pool(path, worker_pool_size)?;
@@ -75,7 +93,7 @@ impl Widget for &mut AppState {
 		self.status = Status::CalcNewLayout(middle);
 	    },
 	    Displaying => {
-		self.render_aux(area, buf);
+		self.render_helper(area, buf);
 	    },
 	    _ => {
 	    },
@@ -222,43 +240,4 @@ impl AppState {
     }
 
 
-    fn render_aux(&mut self, area: Rect, buf: &mut Buffer) {
-	let directory = &self.now.directory;
-	let directory_path = directory.path.to_string_lossy().into_owned();
-
-	let current_cell = &self.cells[self.on];
-	let current_name = get_cell_content_name(current_cell);
-	let [ top, _, bottom ] = Layout::vertical(vec![
-	    Constraint::Length(3),
-	    Constraint::Fill(1),
-	    Constraint::Length(3)
-	]).areas(area);
-	let [ top_left, top_right ] = Layout::horizontal(vec![
-	    Constraint::Ratio(1, 2) ; 2
-	]).areas(top);
-
-	Paragraph::new(directory_path)
-	    .block(Block::bordered())
-	    .render(top_left, buf);
-	Paragraph::new(current_name)
-	    .block(Block::bordered())
-	    .render(top_right, buf);
-	Paragraph::new("Help")
-	    .block(Block::bordered())
-	    .render(bottom, buf);
-
-	for i in 0..self.cells.len() {
-	    let cell_name = get_cell_content_name(&self.cells[i]);
-	    let outer_block = Block::bordered()
-		.merge_borders(MergeStrategy::Exact);
-	    let on_style = Style::new().fg(Color::White).bg(Color::DarkGray);
-	    let off_style = Style::new().fg(Color::White).bg(Color::Black);
-	    let inner_block = Paragraph::new(cell_name)
-		.style(if i == self.on { on_style } else { off_style });
-	    let inner_area = outer_block.inner(self.cells[i].rect);
-
-	    outer_block.render(self.cells[i].rect, buf);
-	    inner_block.render(inner_area, buf);
-	}
-    }
 }
