@@ -1,9 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::*;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::io::ErrorKind::*;
 use std::io::{Error, ErrorKind::NotADirectory};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+
 use std::sync::{
     mpsc,
     mpsc::{Receiver, Sender},
@@ -16,7 +18,7 @@ use crate::inode::*;
 type InodeIndex = usize;
 type Pending = usize;
 
-pub const ROOT_ID: InodeIndex = 0;
+pub const ROOT_INDEX: InodeIndex = 0;
 
 pub struct WorkState {
     pendings: HashMap<InodeIndex, Pending>,
@@ -24,7 +26,7 @@ pub struct WorkState {
 }
 
 #[derive(Clone)]
-struct ScannerInode {
+pub struct ScannerInode {
     path: PathBuf,
     usage: DiskUsage,
     detail: ScannerInodeDetail,
@@ -35,7 +37,7 @@ struct ScannerInode {
 enum ScannerInodeDetail {
     Reg,
     Sym,
-    Dir(Vec<AM<ScannerInode>>),
+    Dir(Vec<Arc<Mutex<ScannerInode>>>),
 }
 
 impl ScannerInode {
@@ -97,6 +99,13 @@ fn entry_to_inode(dir_entry: &DirEntry, parent: InodeIndex) -> ScannerInode {
     }
 }
 
+fn get_inode_arc_by_index(inodes_arc: &Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
+			  index: InodeIndex) -> Option<Arc<Mutex<ScannerInode>>> {
+    let mut inodes = inodes_arc.lock().unwrap();
+    let inode = inodes.get(index)?.clone();
+    Some(inode)
+}
+
 fn scanner(
     inodes_arc: Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
     root_collected: Arc<Mutex<bool>>,
@@ -111,16 +120,19 @@ fn scanner(
 
         let dir_index = match (state_arc.lock().unwrap().job_queue).pop_front() {
             Some(dir_index) => dir_index,
-            None => continue,
+            None => {
+		continue;
+	    }
         };
 
-        /* Scan directory */
-        let dir_path = {
-            let inodes_arc_ = (&inodes_arc).clone();
-            let inodes = inodes_arc_.lock().unwrap();
-            let dir_inode = inodes.get(dir_index).unwrap().lock().unwrap();
-            dir_inode.path.clone()
-        };
+
+
+	let dir_inode_arc = get_inode_arc_by_index(&inodes_arc, dir_index).unwrap();
+	let mut dir_inode = dir_inode_arc.lock().unwrap();
+
+	let dir_path = (*dir_inode).path.to_path_buf();
+
+	println!("Work {} start a loop: {:?}", dir_index, dir_path);
 
         let mut usage_subtotal = 0;
         let mut subdir_count = 0;
@@ -134,6 +146,7 @@ fn scanner(
             subdir_count += if entry_inode.is_dir() { 1 } else { 0 };
             children.push(entry_inode);
         }
+	println!("Work {} scanned the directory", dir_index);
 
         /* Processing the Result of Scanning
 
@@ -159,33 +172,22 @@ fn scanner(
         */
 
         /* Update usage subtotal */
-        {
-            let inodes_arc_ = (&inodes_arc).clone();
-            let mut inodes = inodes_arc_.lock().unwrap();
-            let mut dir_inode = inodes
-		.get_mut(dir_index).unwrap()
-		.lock().unwrap();
-            dir_inode.usage = usage_subtotal;
-        }
+	dir_inode.usage += usage_subtotal;
+
         /* Update pending */
-        {
-            (&state_arc)
-                .lock()
-                .unwrap()
-                .pendings
-                .insert(dir_index, subdir_count);
-        }
+	let mut state = state_arc.lock().unwrap();
+
+	state.pendings.insert(dir_index, subdir_count);
+
+	println!("Work {} updated usage and pending", dir_index);
 
         /* Add inode to total collection and as child */
-        let inodes_arc_ = (&inodes_arc).clone();
-        let mut inodes = inodes_arc_.lock().unwrap();
-        let dir_inode_arc = inodes.get_mut(dir_index).unwrap().clone();
-        let mut dir_inode = dir_inode_arc.lock().unwrap();
         let dir_children = if let ScannerInodeDetail::Dir(dir_children) = &mut dir_inode.detail {
             dir_children
         } else {
             panic!()
         };
+	let mut inodes = inodes_arc.lock().unwrap();
 
         let mut jobs = Vec::new();
 
@@ -202,15 +204,25 @@ fn scanner(
             dir_children.push(child_arc.clone());
         }
 
+	println!("Work {} pushed new inodes into collection and parent", dir_index);
+
         /* Send message to collector */
         sender.send((dir_index, subdir_count)).unwrap();
 
+
+	println!("Work {} sent message to collector", dir_index);
+
         /* Add new jobs */
-        let job_queue = &mut state_arc.lock().unwrap().job_queue;
         for job in jobs {
-            job_queue.push_back(job);
+	    state.job_queue.push_back(job);
         }
+
+	println!("Work {} added the jobs", dir_index);
+
+
+	println!("Work {} done", dir_index);
     }
+    println!("Work exiting");
     return ();
 }
 
@@ -220,8 +232,13 @@ fn collector(inodes_arc: Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
 	     receiver: Receiver<(InodeIndex, Pending)>,
 ) -> () {
     loop {
-        let (dir_index, pending) = receiver.recv().unwrap();
+        let (leaf_index, pending) = receiver.recv().unwrap();
 
+
+	println!("{:?}, {:?}, {:?}",
+		 leaf_index,
+		 inodes_arc.lock().unwrap().get(leaf_index).unwrap().lock().unwrap().path,
+		 pending);
         /* When the collector receives a message, it is because a worker have
         initialized an directory inode. The worker is reporting the directory
 	index and the number of subdirectories in the directory.
@@ -242,7 +259,7 @@ fn collector(inodes_arc: Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
         Notify all worker threads through mutex.
 
         Branch 3: The directory has no subdirectory, and is not the root
-        This means a "leaf directory", aka a directory with no more subdirectory
+        This means a "leaf directory", a directory with no subdirectory,
         has finished scanning. The information collected by the leaf directory
         can now be propagated back to its parent. The parent directory is pending
         on one less subtask.
@@ -252,42 +269,60 @@ fn collector(inodes_arc: Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
          */
         if pending > 0 {
             continue;
-        } else if dir_index == ROOT_ID {
+        } else if leaf_index == ROOT_INDEX {
             *(root_collected.lock().unwrap()) = true;
             break;
         } else {
-            let mut state = state_arc.lock().unwrap();
+	    let mut state = state_arc.lock().unwrap();
 
-            let mut usage_to_add = (*state).inodes.get(&dir_index).unwrap().lock().unwrap().usage;
-            let mut parent_id = (*state).parent_id_by_id.get(&dir_index).unwrap().to_owned();
-            let mut parent_inode_arc = (*state).inodes.get(&parent_id).unwrap().clone();
-            let mut parent_pending = (*state).pending_count_by_id.get_mut(&parent_id).unwrap();
-            let mut propagate = true;
-            while propagate && parent_id != ROOT_ID {
-                (*parent_inode_arc).lock().unwrap().usage += usage_to_add;
-                (*parent_pending) -= 1;
 
-                propagate = false;
 
-                if (*parent_pending) == 0 {
-                    propagate = true;
-                    usage_to_add = (*parent_inode_arc).lock().unwrap().usage;
-                    parent_id = (*state).parent_id_by_id.get(&parent_id).unwrap().to_owned();
-                    parent_inode_arc = (*state).inodes.get(&parent_id).unwrap().clone();
-                    parent_pending = (*state).pending_count_by_id.get_mut(&parent_id).unwrap();
-                }
-            }
-            if parent_id == ROOT_ID {
-                (*parent_inode_arc).lock().unwrap().usage += usage_to_add;
-                (*parent_pending) -= 1;
 
-                if *parent_pending == 0 {
-                    *(root_collected.lock().unwrap()) = true;
-                    break;
-                }
-            }
+
+	    println!("Collector: === Before acquire inodes lock ===");
+	    // TODO I cannot acquire this lock! Why?
+	    let inodes = inodes_arc.lock().unwrap();
+	    println!("Collector: === After acquire inodes lock ===");
+
+
+
+
+	    let leaf_dir = inodes.get(leaf_index).unwrap().lock().unwrap();
+
+	    let mut usage_to_add = leaf_dir.usage;
+	    let mut parent_index = leaf_dir.parent;
+	    let mut parent_inode_arc = inodes.get(parent_index).unwrap();
+	    let mut parent_pending = (*state).pendings.get_mut(&parent_index).unwrap();
+	    let mut propagate = true;
+
+	    while propagate && parent_index != ROOT_INDEX {
+		(*parent_inode_arc).lock().unwrap().usage += usage_to_add;
+		(*parent_pending) -= 1;
+
+		propagate = false;
+
+		if (*parent_pending) == 0 {
+		    propagate = true;
+		    usage_to_add = (*parent_inode_arc).lock().unwrap().usage;
+		    parent_index = (*parent_inode_arc).lock().unwrap().parent;
+		    parent_inode_arc = inodes.get(parent_index).unwrap();
+		    parent_pending = (*state).pendings.get_mut(&parent_index).unwrap();
+		}
+	    }
+
+	    if propagate && parent_index == ROOT_INDEX {
+		(*parent_inode_arc).lock().unwrap().usage += usage_to_add;
+		(*parent_pending) -= 1;
+
+		if (*parent_pending) == 0 {
+		    *(root_collected.lock().unwrap()) = true;
+		    break;
+		}
+	    }
+
         }
     }
+    return ();
 }
 
 impl TryFrom<Arc<Mutex<ScannerInode>>> for Inode {
@@ -306,9 +341,9 @@ impl TryFrom<Arc<Mutex<ScannerInode>>> for Inode {
                 let mut children = Vec::new();
                 for rc_child in rc_children {
                     let inode = Inode::try_from(rc_child.to_owned())?;
-                    children.push(Rc::new(inode));
+                    children.push(Rc::new(RefCell::new(inode)));
                 }
-                children.sort_by_key(|inode| inode.usage);
+                children.sort_by_key(|inode| inode.borrow().usage);
                 children.reverse();
                 InodeDetail::Dir(children)
             }
@@ -322,123 +357,56 @@ impl TryFrom<Arc<Mutex<ScannerInode>>> for Inode {
     }
 }
 
-pub fn scan_directory_with_pool(
-    path: &Path,
-    worker_pool_size: usize,
-) -> std::io::Result<Rc<Inode>> {
-    let path_metadata = symlink_metadata(path)?;
-    if !path_metadata.is_dir() {
-        return Err(Error::from(NotADirectory));
-    }
-
-    if worker_pool_size == 1 || worker_pool_size == 2 {
-        scan_single_threaded(path)
-    } else {
-        let end_state_arc = scan_multi_threaded(path, worker_pool_size - 1)?;
-        let end_state = match end_state_arc.lock() {
-            Ok(end_state) => Ok(end_state),
-            Err(_) => Err(Error::from(Deadlock)),
-        }?;
-        let root_inode_arc = match end_state.inodes.get(&ROOT_ID) {
-            Some(arc) => Ok(arc),
-            None => Err(Error::from(NotFound)),
-        }?
-        .to_owned();
-        match Inode::try_from(root_inode_arc) {
-            Ok(inode) => Ok(Rc::new(inode)),
-            Err(_) => Err(Error::from(Deadlock)),
-        }
-    }
-}
-
-pub fn scan_multi_threaded(
-    path: &Path,
-    worker_pool_size: usize,
-) -> std::io::Result<Arc<Mutex<ScannerState>>> {
-    let mut state = ScannerState {
-        next_inode_id: ROOT_ID,
-        inodes: HashMap::new(),
-        parent_id_by_id: HashMap::new(),
-        pending_count_by_id: HashMap::new(),
-        work_queue: VecDeque::new(),
-    };
-
-    let root_id = state.get_next_inode_id();
-    let root_inode = ScannerInode {
-        path: path.to_path_buf(),
-        usage: 0,
-        detail: ScannerInodeDetail::Dir(Vec::new()),
-    };
-    let root_inode_arc = Arc::new(Mutex::new(root_inode));
-    state.inodes.insert(root_id, root_inode_arc);
-    state.work_queue.push_back(root_id);
-
-    let state_arc = Arc::new(Mutex::new(state));
+pub fn path_to_inode(path: &Path) {
+    let mut inodes = Vec::new();
+    inodes.push(Arc::new(Mutex::new( ScannerInode {
+	path: path.to_path_buf(),
+	usage: 0,
+	detail: ScannerInodeDetail::Dir(Vec::new()),
+	parent: ROOT_INDEX,
+    })));
+    let inodes_arc = Arc::new(Mutex::new(inodes));
     let root_collected = Arc::new(Mutex::new(false));
+    let state_arc = Arc::new(Mutex::new(WorkState { pendings: HashMap::new(),
+						    job_queue: VecDeque::from([0]) }));
     let (sender, receiver) = mpsc::channel();
 
     let mut scanner_handles = vec![];
-    for _ in 0..worker_pool_size {
-        let state_arc = Arc::clone(&state_arc);
-        let root_collected = Arc::clone(&root_collected);
-        let sender = sender.clone();
-        let scanner_handle = thread::spawn(move || {
-            scanner(state_arc, root_collected, sender);
-        });
-        scanner_handles.push(scanner_handle);
+    for _ in 0..2 {
+	let inodes_arc = Arc::clone(&inodes_arc);
+	let root_collected = Arc::clone(&root_collected);
+	let state_arc = Arc::clone(&state_arc);
+	let sender = sender.clone();
+	let scanner_handle = thread::spawn(move || {
+	    scanner(inodes_arc, root_collected, state_arc, sender)
+	});
+	scanner_handles.push(scanner_handle);
     }
 
-    let collector_state_arc = Arc::clone(&state_arc);
-    let collector_root_collected = Arc::clone(&root_collected);
-    let collector_handle = thread::spawn(move || {
-        collector(collector_state_arc, collector_root_collected, receiver);
-    });
+    let collector_handle =
+    {
+	let inodes_arc = Arc::clone(&inodes_arc);
+	let root_collected = Arc::clone(&root_collected);
+	let state_arc = Arc::clone(&state_arc);
+	thread::spawn(move || {
+	    collector(inodes_arc, root_collected, state_arc, receiver)
+	})
+    };
 
     for scanner_handle in scanner_handles {
-        scanner_handle.join().unwrap();
+	scanner_handle.join().unwrap();
     }
     collector_handle.join().unwrap();
 
-    Ok(state_arc)
-}
+    println!("Collected all");
 
-pub fn scan_single_threaded(path: &Path) -> std::io::Result<Rc<Inode>> {
-    use crate::inode::InodeDetail::*;
+    let root_inode = Inode::try_from(inodes_arc
+				     .lock()
+				     .unwrap()
+				     .get(ROOT_INDEX)
+				     .unwrap()
+				     .to_owned())
+	.unwrap();
 
-    let inode_path = path.to_path_buf();
-    let metadata = symlink_metadata(path)?;
-
-    if metadata.is_file() {
-        Ok(Rc::new(Inode {
-            path: inode_path,
-            usage: DiskUsage::from(metadata.len()),
-            detail: Reg,
-        }))
-    } else if metadata.is_symlink() {
-        Ok(Rc::new(Inode {
-            path: inode_path,
-            usage: DiskUsage::from(metadata.len()),
-            detail: Sym,
-        }))
-    } else {
-        // metadata.is_dir()
-        let mut inode_usage: DiskUsage = 0;
-        let mut children = Vec::new();
-        for dir_entry in read_dir(path)? {
-            let dir_entry = match dir_entry {
-                Ok(dir_entry) => dir_entry,
-                Err(_) => continue,
-            };
-            let child = scan_single_threaded(&dir_entry.path())?;
-            inode_usage += child.usage;
-            children.push(child);
-        }
-        children.sort_by_key(|inode_rc| (*inode_rc).usage);
-        children.reverse();
-        Ok(Rc::new(Inode {
-            path: inode_path,
-            usage: inode_usage,
-            detail: Dir(children),
-        }))
-    }
+    print_inodes(&root_inode, 0);
 }

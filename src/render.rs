@@ -6,11 +6,11 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use crate::{layout::get_cell_content_name, logic::AppState};
+use crate::{layout::get_cell_content_name, logic::State};
 
-impl AppState {
+impl State {
 
-    pub fn render_helper(&mut self, area: Rect, buf: &mut Buffer) {
+    pub fn render_helper(&mut self, area: Rect, buf: &mut Buffer, cells: &Vec<Cell>) {
 	let directory = &self.now.directory;
 	let directory_path = directory.path.to_string_lossy().into_owned();
 

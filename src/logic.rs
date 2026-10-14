@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::path::Path;
 use std::{cmp, path::PathBuf, rc::Rc};
+use std::sync::{Arc, Mutex};
 use Status::{CalcNewLayout, Displaying, NeedRefresh};
 use crossterm::event::Event;
 use ratatui::Frame;
@@ -10,80 +11,45 @@ use ratatui::style::{Color, Style};
 use ratatui::symbols::merge::MergeStrategy;
 use ratatui::widgets::{Block, Paragraph, Widget};
 use ratatui::{DefaultTerminal, prelude::Rect};
-use crate::{inode::*, scanner::scan_directory_with_pool, squarify};
+use crate::{inode::*, squarify, scanner::*};
 use crate::layout::*;
+
+type CellIndex = usize;
 
 #[derive(Clone)]
 pub struct HistoryEntry {
     pub directory: Rc<RefCell<Inode>>,
     pub starting_index: usize,
-    pub selected: CellId,
+    pub selected: CellIndex,
 }
 
 pub enum Status {
-    Scanning(), // this needs working
+    Scanning(Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>, Arc<Mutex<bool>>), // this needs working
     NeedRefresh,
     CalcNewLayout(Rect),
     Displaying(Vec<Cell>),
 }
 
+#[allow(unused)]
 pub struct State {
     pub status: Status,
     pub root_path: PathBuf,
-    pub root_inode: Rc<RefCell<Inode>>,
-    pub history: Vec<HistoryEntry>,
-    pub current: HistoryEntry,
-}
-
-
-#[allow(unused)]
-pub struct AppState {
-    pub status: Status,
-    pub path: PathBuf,
     pub worker_pool_size: usize,
 
-    pub root_inode: Rc<Inode>,
-
-    pub cells: Vec<Cell>,
-    pub neighbours: Vec<Neighbours>,
-    pub on: CellId,
+    pub root_inode: Rc<RefCell<Inode>>,
 
     pub history: Vec<HistoryEntry>,
     pub now: HistoryEntry,
 }
 
-// pub struct HistoryEntry {
-//     pub directory: Rc<Inode>,
-//     pub starting_index: usize,
-//     pub was_on: CellId,
-// }
-
-pub fn path_to_app_state(path: &Path, worker_pool_size: usize) -> std::io::Result<AppState> {
-    let root_inode = scan_directory_with_pool(path, worker_pool_size)?;
-    let now = HistoryEntry {
-	directory: root_inode.clone(),
-	starting_index: 0,
-	was_on: 0 // just a place holder
-    };
-    Ok(AppState {
-	status: NeedRefresh,
-	path: path.to_path_buf(),
-	worker_pool_size,
-
-	root_inode,
-	cells: Vec::new(),
-	neighbours: Vec::new(),
-	on: 0,
-
-	history: Vec::new(),
-	now,
-    })
-}
 
 
-impl Widget for &mut AppState {
+impl Widget for &mut State {
     fn render(self, area: Rect, buf: &mut Buffer) {
+	use Status::*;
 	match self.status {
+	    Scanning(inodes, root_collected) => {
+	    }
 	    NeedRefresh => {
 		let [ _, middle, _ ] = Layout::vertical(vec![
 		    Constraint::Length(3),
@@ -92,7 +58,7 @@ impl Widget for &mut AppState {
 		]).areas(area);
 		self.status = Status::CalcNewLayout(middle);
 	    },
-	    Displaying => {
+	    Displaying(cells) => {
 		self.render_helper(area, buf);
 	    },
 	    _ => {

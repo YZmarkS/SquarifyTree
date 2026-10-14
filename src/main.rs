@@ -1,13 +1,15 @@
 use std::{io, path::Path};
 
+use scanner::path_to_inode;
+
 mod scanner;
 mod squarify;
 mod inode;
-mod layout;
-mod logic;
-mod render;
-use squarify::*;
-use logic::*;
+// mod layout;
+// mod logic;
+// mod render;
+// use squarify::*;
+// use logic::*;
 
 fn main() -> io::Result<()> {
 
@@ -15,14 +17,14 @@ fn main() -> io::Result<()> {
     // 	println!("{arg}");
     // }
 
-    let path = Path::new("/home/lemon");
+    let path = Path::new("/home/lemon/Projects");
     let worker_pool_size = 10;
 
-    let mut state = path_to_app_state(path, worker_pool_size)?;
+    let mut state = path_to_inode(path);
 
     // just_calc();
 
-    ratatui::run(|terminal| state.ratatui_loop(terminal)).unwrap();
+    // ratatui::run(|terminal| state.ratatui_loop(terminal)).unwrap();
     Ok(())
 
 }
