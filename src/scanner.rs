@@ -125,18 +125,12 @@ fn scanner(
 	    }
         };
 
-
-
 	let dir_inode_arc = get_inode_arc_by_index(&inodes_arc, dir_index).unwrap();
 	let mut dir_inode = dir_inode_arc.lock().unwrap();
-
 	let dir_path = (*dir_inode).path.to_path_buf();
-
-	println!("Work {} start a loop: {:?}", dir_index, dir_path);
 
         let mut usage_subtotal = 0;
         let mut subdir_count = 0;
-
         let mut children = Vec::new();
 
         for entry_result in read_dir(dir_path).unwrap() {
@@ -146,7 +140,6 @@ fn scanner(
             subdir_count += if entry_inode.is_dir() { 1 } else { 0 };
             children.push(entry_inode);
         }
-	println!("Work {} scanned the directory", dir_index);
 
         /* Processing the Result of Scanning
 
@@ -169,28 +162,26 @@ fn scanner(
                        2. inodes list is updated. This is because each job
                        identifies an index in the inodes list, containing the
                        inode need to be worked on.
-        */
+         */
+
+	/* Obtain mutually shared resources */
+	let mut state = state_arc.lock().unwrap();
+	let mut inodes = inodes_arc.lock().unwrap();
 
         /* Update usage subtotal */
 	dir_inode.usage += usage_subtotal;
 
         /* Update pending */
-	let mut state = state_arc.lock().unwrap();
-
 	state.pendings.insert(dir_index, subdir_count);
 
-	println!("Work {} updated usage and pending", dir_index);
-
         /* Add inode to total collection and as child */
-        let dir_children = if let ScannerInodeDetail::Dir(dir_children) = &mut dir_inode.detail {
-            dir_children
-        } else {
-            panic!()
-        };
-	let mut inodes = inodes_arc.lock().unwrap();
-
+        let dir_children =
+	    if let ScannerInodeDetail::Dir(dir_children) = &mut dir_inode.detail {
+		dir_children
+            } else {
+		panic!("Job should always be a directory")
+            };
         let mut jobs = Vec::new();
-
         for child in children {
             let index = inodes.len();
 
@@ -199,46 +190,28 @@ fn scanner(
             }
 
             let child_arc = Arc::new(Mutex::new(child));
-
             inodes.push(child_arc.clone());
             dir_children.push(child_arc.clone());
         }
 
-	println!("Work {} pushed new inodes into collection and parent", dir_index);
-
         /* Send message to collector */
         sender.send((dir_index, subdir_count)).unwrap();
-
-
-	println!("Work {} sent message to collector", dir_index);
 
         /* Add new jobs */
         for job in jobs {
 	    state.job_queue.push_back(job);
         }
-
-	println!("Work {} added the jobs", dir_index);
-
-
-	println!("Work {} done", dir_index);
     }
-    println!("Work exiting");
     return ();
 }
 
 fn collector(inodes_arc: Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
 	     root_collected: Arc<Mutex<bool>>,
 	     state_arc: Arc<Mutex<WorkState>>,
-	     receiver: Receiver<(InodeIndex, Pending)>,
-) -> () {
+	     receiver: Receiver<(InodeIndex, Pending)>) -> () {
     loop {
         let (leaf_index, pending) = receiver.recv().unwrap();
 
-
-	println!("{:?}, {:?}, {:?}",
-		 leaf_index,
-		 inodes_arc.lock().unwrap().get(leaf_index).unwrap().lock().unwrap().path,
-		 pending);
         /* When the collector receives a message, it is because a worker have
         initialized an directory inode. The worker is reporting the directory
 	index and the number of subdirectories in the directory.
@@ -274,21 +247,8 @@ fn collector(inodes_arc: Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
             break;
         } else {
 	    let mut state = state_arc.lock().unwrap();
-
-
-
-
-
-	    println!("Collector: === Before acquire inodes lock ===");
-	    // TODO I cannot acquire this lock! Why?
 	    let inodes = inodes_arc.lock().unwrap();
-	    println!("Collector: === After acquire inodes lock ===");
-
-
-
-
 	    let leaf_dir = inodes.get(leaf_index).unwrap().lock().unwrap();
-
 	    let mut usage_to_add = leaf_dir.usage;
 	    let mut parent_index = leaf_dir.parent;
 	    let mut parent_inode_arc = inodes.get(parent_index).unwrap();
@@ -398,7 +358,6 @@ pub fn path_to_inode(path: &Path) {
     }
     collector_handle.join().unwrap();
 
-    println!("Collected all");
 
     let root_inode = Inode::try_from(inodes_arc
 				     .lock()
