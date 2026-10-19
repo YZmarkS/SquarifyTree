@@ -4,6 +4,8 @@ use std::path::{PathBuf};
 
 pub type DiskUsage = u128;
 
+
+
 #[derive(Debug)]
 pub struct Inode {
     pub path: PathBuf,
@@ -17,6 +19,27 @@ pub enum InodeDetail {
     Sym,
     Dir(Vec<Rc<RefCell<Inode>>>),
 }
+
+impl Inode {
+
+}
+
+#[allow(unused)]
+pub fn print_inodes(inode: &Rc<RefCell<Inode>>, indent: u8) -> () {
+    for _ in 0..indent {
+	print!("    ");
+    }
+    println!("{:?} {:?}",
+	     inode.borrow().path,
+	     inode.borrow().usage);
+    if let InodeDetail::Dir(children) = &(inode.borrow().detail) {
+	for child in children {
+	    print_inodes(child, indent + 1);
+	}
+    }
+}
+
+
 
 impl Inode {
     fn is_reg(&self) -> bool {
@@ -48,20 +71,5 @@ impl InodeDetail {
             InodeDetail::Dir(_) => true,
             _ => false,
         }
-    }
-}
-
-#[allow(unused)]
-pub fn print_inodes(inode: &Rc<RefCell<Inode>>, indent: u8) -> () {
-    for _ in 0..indent {
-	print!("    ");
-    }
-    println!("{:?} {:?}",
-	     inode.borrow().path,
-	     inode.borrow().usage);
-    if let InodeDetail::Dir(children) = &(inode.borrow().detail) {
-	for child in children {
-	    print_inodes(child, indent + 1);
-	}
     }
 }

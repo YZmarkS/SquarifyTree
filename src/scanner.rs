@@ -1,8 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{self, HashMap, VecDeque};
 use std::fs::*;
-use std::io::ErrorKind::*;
-use std::io::{Error, ErrorKind::NotADirectory};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -116,10 +114,10 @@ fn scanner(
                     parent_path: Some(path.clone()),
                 });
             } else {
-                println!(
-                    "Unaccounted entry type {:?} produced by {:?}",
-                    entry_type, entry_path
-                );
+                // eprintln!(
+                //     "Unaccounted entry type {:?} produced by {:?}",
+                //     entry_type, entry_path
+                // );
 		continue;
             };
 
@@ -212,16 +210,14 @@ fn collector(
         }
 
         if propagate {
-	    println!("Collector going to writing HashMap");
             *(base_collected.write().unwrap()) = Some(collector_inodes);
-	    println!("Collector done writing HashMap");
             break;
         }
     }
     return ();
 }
 
-fn collector_inodes_to_inodes(
+pub fn collector_inodes_to_inodes(
     collector_inodes: &HashMap<PathBuf, CollectorInode>,
 ) -> HashMap<PathBuf, Rc<RefCell<Inode>>> {
     let mut result = HashMap::new();
@@ -244,15 +240,10 @@ fn collector_inodes_to_inodes(
     result
 }
 
-fn populate_children_list(
+pub fn populate_children_list(
     collector_inodes: &HashMap<PathBuf, CollectorInode>,
     inodes: &mut HashMap<PathBuf, Rc<RefCell<Inode>>>,
 ) {
-    let mut collector_keys: Vec<PathBuf> = collector_inodes.keys().cloned().collect();
-    collector_keys.sort();
-    let mut inodes_keys: Vec<PathBuf> = inodes.keys().cloned().collect();
-    inodes_keys.sort();
-
     for (inode_path, collector_inode) in collector_inodes.iter() {
         if let CollectorInodeDetail::Dir(DirectoryDetail { child_paths, .. }) =
             &(collector_inode.detail)
@@ -275,17 +266,20 @@ fn populate_children_list(
     }
 }
 
-pub fn scan_base_path(base_path: &Path) -> Rc<RefCell<Inode>> {
+pub fn scan_base_path(
+    worker_pool_size: usize,
+    base_path: PathBuf,
+    base_collected: Arc<RwLock<Option<HashMap<PathBuf, CollectorInode>>>>,
+) {
     let job_queue = Arc::new(Mutex::new(VecDeque::from(vec![ScanJob {
         path: base_path.to_path_buf(),
         parent_path: None,
     }])));
-    let base_collected = Arc::new(RwLock::new(None));
 
     let (sender, receiver) = mpsc::channel();
 
     let mut scanner_handles = vec![];
-    for _ in 0..20 {
+    for _ in 0..worker_pool_size {
         let job_queue = (&job_queue).clone();
         let base_collected = (&base_collected).clone();
         let sender = sender.clone();
@@ -300,30 +294,8 @@ pub fn scan_base_path(base_path: &Path) -> Rc<RefCell<Inode>> {
         collector(base_collected_clone, receiver);
     });
 
-    collector_handle.join().unwrap();
-    println!("Collector Joined");
     for handle in scanner_handles {
         handle.join().unwrap();
     }
-    println!("Scanners Joined");
-
-    println!("Start post processing");
-    println!("Extract final collector inodes");
-    println!();
-    let final_collector_inodes = base_collected.read().unwrap();
-
-    println!("Turn collector inodes into inodes");
-    println!("Slow");
-    let mut final_inodes = collector_inodes_to_inodes(final_collector_inodes.as_ref().unwrap());
-
-    println!("Populate inodes");
-    println!("Slow");
-    populate_children_list(final_collector_inodes.as_ref().unwrap(), &mut final_inodes);
-    println!("Done post processing");
-
-
-    final_inodes
-        .get(&base_path.to_path_buf())
-        .unwrap()
-        .to_owned()
+    collector_handle.join().unwrap();
 }

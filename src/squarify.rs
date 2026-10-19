@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::cmp;
 use std::rc::Rc;
 
@@ -27,15 +28,15 @@ fn calc_stack_breadth(usage: DiskUsage,
     cmp::max(rounded_breadth, CELL_MIN_MEASURE)
 }
 
-fn calc_stack_spans(inodes: &[Rc<Inode>],
+fn calc_stack_spans(inodes: &[Rc<RefCell<Inode>>],
 		    total_span: Measure) -> Vec<Measure> {
-    let total_usage: DiskUsage = inodes.iter().map(|inode| inode.usage).sum();
+    let total_usage: DiskUsage = inodes.iter().map(|inode| inode.borrow().usage).sum();
     let mut spans = Vec::new();
 
     let mut remaining_span = total_span;
 
     for inode in inodes {
-	let inode_usage = inode.usage;
+	let inode_usage = inode.borrow().usage;
 	let precise_span = (total_span as f64) * (inode_usage as f64) / (total_usage as f64);
 	let truncated_span = precise_span.trunc() as Measure;
 
@@ -105,14 +106,14 @@ pub struct StackInfo {
     worst_ratio: f64,
 }
 
-fn calc_stack_info(inodes: &[Rc<Inode>], take: usize,
+fn calc_stack_info(inodes: &[Rc<RefCell<Inode>>], take: usize,
 		   total_usage: DiskUsage,
 		   total_breadth: Measure, total_span: Measure,
 		   direction: &StackDirection)
 		   -> StackInfo {
     assert_ne!(inodes.len(), 0);
 
-    let subtotal_usage = inodes[..take].iter().map(|inode| inode.usage).sum();
+    let subtotal_usage = inodes[..take].iter().map(|inode| inode.borrow().usage).sum();
     let stack_breadth = calc_stack_breadth(subtotal_usage, total_usage, total_breadth);
     let other_breadth = total_breadth - stack_breadth;
     let stack_spans = calc_stack_spans(&(inodes[..take]), total_span);
@@ -128,7 +129,7 @@ fn calc_stack_info(inodes: &[Rc<Inode>], take: usize,
     }
 }
 
-pub fn squarify(inodes: &[Rc<Inode>],
+pub fn squarify(inodes: &[Rc<RefCell<Inode>>],
 		width: Measure, height: Measure) -> Squarify {
 
     let is_landscape = is_landscape(width, height);
@@ -147,7 +148,7 @@ pub fn squarify(inodes: &[Rc<Inode>],
     let total_span = if is_landscape { height } else { width };
     let direction = if is_landscape { Vertical } else { Horizontal };
 
-    let total_usage: DiskUsage = inodes.iter().map(|inode| inode.usage).sum();
+    let total_usage: DiskUsage = inodes.iter().map(|inode| inode.borrow().usage).sum();
 
     let mut take = 1;
     let mut stack_info = calc_stack_info(inodes, take,

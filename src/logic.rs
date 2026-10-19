@@ -1,209 +1,286 @@
-use std::cell::RefCell;
-use std::path::Path;
-use std::{cmp, path::PathBuf, rc::Rc};
-use std::sync::{Arc, Mutex};
-use Status::{CalcNewLayout, Displaying, NeedRefresh};
+use std::{sync::*, thread};
 use crossterm::event::Event;
-use ratatui::Frame;
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Layout};
-use ratatui::style::{Color, Style};
-use ratatui::symbols::merge::MergeStrategy;
-use ratatui::widgets::{Block, Paragraph, Widget};
-use ratatui::{DefaultTerminal, prelude::Rect};
-use crate::{inode::*, squarify, scanner::*};
-use crate::layout::*;
 
-type CellIndex = usize;
+use crate::{inode::*, layout::*, main_loop::*, scanner::*, squarify::*};
 
-#[derive(Clone)]
-pub struct HistoryEntry {
-    pub directory: Rc<RefCell<Inode>>,
-    pub starting_index: usize,
-    pub selected: CellIndex,
-}
+impl State {
+    pub fn delta(&mut self, status: Status) -> Status {
+        use Status::*;
+        match status {
+            /* Scanning
 
-pub enum Status {
-    Scanning(Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>, Arc<Mutex<bool>>), // this needs working
-    NeedRefresh,
-    CalcNewLayout(Rect),
-    Displaying(Vec<Cell>),
-}
+            The main challenge is communicating between the main rendering
+            thread and the scanning threads. If the only goal is to notify
+            completion, the interface does not need to be complicated. Channel,
+            mutex are both sufficient.
 
-#[allow(unused)]
-pub struct State {
-    pub status: Status,
-    pub root_path: PathBuf,
-    pub worker_pool_size: usize,
+            [StartScanning] status prepares the interface, spawns the scanning
+            threads, and transition to [Scannig] state.
 
-    pub root_inode: Rc<RefCell<Inode>>,
+            [Scanning] status repeatedly check for completion. Once scanning is
+            complete, convert scanning result and transition to cleanup status.
+             */
+            StartScanning => {
+                let base_collected = Arc::new(RwLock::new(None));
+                let base_collected_thread = base_collected.clone();
 
-    pub history: Vec<HistoryEntry>,
-    pub now: HistoryEntry,
-}
+                let worker_pool_size = self.worker_pool_size;
+                let base_path = self.now.directory.borrow().path.clone();
 
+                let scanning_thread_handle = thread::spawn(move || {
+                    scan_base_path(worker_pool_size, base_path, base_collected_thread);
+                });
 
+                Scanning(ScanningContext {
+                    base_collected,
+                    scanning_thread_handle,
+                })
+            }
+            Scanning(ScanningContext {
+                base_collected,
+                scanning_thread_handle,
+            }) => {
+                let maybe_base_collected = base_collected.read().unwrap().to_owned();
+                let new_state = match maybe_base_collected {
+                    None => Scanning(ScanningContext {
+                        base_collected,
+                        scanning_thread_handle,
+                    }),
+                    Some(scanned_collector_inodes) => {
+                        scanning_thread_handle.join().unwrap();
 
-impl Widget for &mut State {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-	use Status::*;
-	match self.status {
-	    Scanning(inodes, root_collected) => {
-	    }
-	    NeedRefresh => {
-		let [ _, middle, _ ] = Layout::vertical(vec![
-		    Constraint::Length(3),
-		    Constraint::Fill(1),
-		    Constraint::Length(3)
-		]).areas(area);
-		self.status = Status::CalcNewLayout(middle);
-	    },
-	    Displaying(cells) => {
-		self.render_helper(area, buf);
-	    },
-	    _ => {
-	    },
-	}
-    }
-}
+                        let scanned_collector_inodes = scanned_collector_inodes.clone();
+                        let mut inodes = collector_inodes_to_inodes(&scanned_collector_inodes);
+                        populate_children_list(&scanned_collector_inodes, &mut inodes);
 
+                        let base_path = self.now.directory.borrow().path.clone();
+                        let new_base_inode = inodes.get(&base_path).unwrap().to_owned();
 
-impl AppState {
-    pub fn ratatui_loop(&mut self, terminal: &mut DefaultTerminal) -> std::io::Result<()> {
-	loop {
-	    terminal.draw(|frame| self.draw(frame))?;
+                        self.now.directory.swap(&new_base_inode);
 
-	    match self.status {
-		CalcNewLayout(canvas) => {
-		    let directory = self.now.directory.clone();
-		    let starting_index = self.now.starting_index;
-		    let children = if let InodeDetail::Dir(children) = &directory.detail {
-			children
-		    } else {
-			panic!("Current is not a directory");
-		    };
+                        ResetDirectoryHistory
+                    }
+                };
+                new_state
+            }
 
-		    let squarify = squarify(&children[starting_index..],
-					    canvas.width - 1, canvas.height - 1);
-		    let rects = squarify_to_rects(&squarify, canvas);
-		    let cells = make_cell_list(&rects, children, starting_index);
-		    let neighbours = relate_cells(&cells);
-		    self.cells = cells;
-		    self.neighbours = neighbours;
-		    self.on = cmp::min(self.on, self.cells.len() - 1);
+            /* Manage History
 
-		    self.status = Displaying;
-		},
-		_ => {
-		    let event = crossterm::event::read()?;
-		    match event {
-			Event::Resize(_, _) => {
-			    self.status = NeedRefresh;
-			},
-			Event::Key(event) => {
-			    use crossterm::event::KeyCode;
-			    match &event.code {
-				KeyCode::Up => { self.up() },
-				KeyCode::Down => { self.down(); },
-				KeyCode::Left => { self.left(); },
-				KeyCode::Right => { self.right(); },
-				KeyCode::Backspace => { self.go_out(); },
-				KeyCode::Enter => { self.go_in(); },
-				KeyCode::Char('q') => { break; },
-				_ => {},
-			    }
-			},
-			_ => {},
-		    }
-		},
-	    }
-	}
-	Ok(())
-    }
+            Refreshing directory and deleting files can cause inconsistency.
+            Namely, consider we are viewing a directory with 10 elements, with
+            the 10th being selected. After deleting the 10th element (whether by
+            external forces or internally through app), the previously selected
+            element becomes unavailable. Thus, it is crucial to recover from an
+            inconsistent state after (re)scanning or file deletion.
+                 */
+            ResetDirectoryHistory => {
+                let curr_directory = self.now.directory.clone();
+                while self.history.last().is_some_and(|entry| {
+                    entry.directory.borrow().path == curr_directory.borrow().path
+                }) {
+                    self.history.pop().unwrap();
+                }
 
-    pub fn draw(&mut self, frame: &mut Frame) {
-	frame.render_widget(self, frame.area());
-    }
+                self.now.selected = 0;
+                self.now.starting_index = 0;
 
-    pub fn up(&mut self) {
-	match self.neighbours[self.on].top {
-	    None => (),
-	    Some(new_index) => self.on = new_index
-	}
-    }
+                GetCanvasSize
+            }
 
-    pub fn down(&mut self) {
-	match self.neighbours[self.on].bottom {
-	    None => (),
-	    Some(new_index) => self.on = new_index
-	}
-    }
+            /* Getting terminal dimension for Layout Calculation
 
-    pub fn left(&mut self) {
-	match self.neighbours[self.on].left {
-	    None => (),
-	    Some(new_index) => self.on = new_index
-	}
-    }
+            We need to know the terminal size on startup and on window resize.
+            While [crossterm] provides some interface for getting the terminal
+            dimension, I want one source of truth, and is currently using the
+             */
+            GetCanvasSize => {
+                panic!("GetCanvasSize: Status should not be possible after draw");
+            }
 
-    pub fn right(&mut self) {
-	match self.neighbours[self.on].right {
-	    None => (),
-	    Some(new_index) => self.on = new_index
-	}
-    }
+            CalcNewLayout(canvas) => {
+                let InodeDetail::Dir(children) = &(self.now.directory.borrow().detail) else {
+                    panic!("CalcNewLayout: Current inode is not a directory");
+                };
 
-    pub fn go_in(&mut self) {
-	let cell = &self.cells[self.on];
+                let squarify = squarify(
+                    &children[self.now.starting_index..],
+                    // The minus one is very annoying because of off-by-one unit
+                    canvas.width - 1,
+                    canvas.height - 1,
+                );
+                let rects = squarify_to_rects(&squarify, canvas);
+                let cells = make_cell_list(&rects, children, self.now.starting_index);
+                let neighbours = make_neighbours(&cells);
 
-	match &cell.content {
-	    CellContent::Inode(inode) => {
-		let inode_rc = inode.clone();
+                Displaying(DisplayingContext { cells, neighbours })
+            }
 
-		if let InodeDetail::Dir(_) = (*inode_rc).detail {
-		    let now = HistoryEntry {
-			directory: self.now.directory.clone(),
-			starting_index: self.now.starting_index,
-			was_on: self.on,
-		    };
-		    let next = HistoryEntry {
-			directory: inode.clone(),
-			starting_index: 0,
-			was_on: 0, // Placeholde
-		    };
-		    self.history.push(now);
-		    self.now = next;
-		    self.on = 0;
-		    self.status = NeedRefresh;
-		}
-	    },
-	    CellContent::Other(starting_index) => {
-		let now = HistoryEntry {
-		    directory: self.now.directory.clone(),
-		    starting_index: self.now.starting_index,
-		    was_on: self.on,
-		};
-		let next = HistoryEntry {
-		    directory: self.now.directory.clone(),
-		    starting_index: *starting_index,
-		    was_on: self.on, // Placeholde
-		};
-		self.history.push(now);
-		self.now = next;
-		self.status = NeedRefresh;
-	    },
-	    CellContent::Nothing => {
-	    }
-	}
+	    /* Displaying and Waiting for User Input
+
+	    If there are no computation to be done, then the application is
+	    waiting for some terminal event to happen.
+
+	    The code is ugly but necessary.
+	     */
+            Displaying(DisplayingContext { cells, neighbours }) => {
+                let event = crossterm::event::read().unwrap();
+                    match event {
+                        Event::Resize(_, _) => GetCanvasSize,
+                        Event::Key(key_event) => {
+                            use crossterm::event::KeyCode;
+                            match &key_event.code {
+                                KeyCode::Up => {
+                                    self.up(&neighbours);
+                                    Displaying(DisplayingContext { cells, neighbours })
+                                }
+                                KeyCode::Down => {
+                                    self.down(&neighbours);
+                                    Displaying(DisplayingContext { cells, neighbours })
+                                }
+                                KeyCode::Left => {
+                                    self.left(&neighbours);
+                                    Displaying(DisplayingContext { cells, neighbours })
+                                }
+                                KeyCode::Right => {
+                                    self.right(&neighbours);
+                                    Displaying(DisplayingContext { cells, neighbours })
+                                }
+                                KeyCode::Backspace => {
+                                    self.go_out();
+                                    GetCanvasSize
+                                }
+                                KeyCode::Enter => {
+                                    self.go_in(&cells);
+                                    GetCanvasSize
+                                }
+				KeyCode::Char('r') => {
+				    StartScanning
+				}
+                                KeyCode::Char('q') => {
+				    Exit
+                                }
+                                _ => Displaying(DisplayingContext { cells, neighbours }),
+                            }
+                        }
+                        _ => Displaying(DisplayingContext { cells, neighbours }),
+                    }
+            }
+
+	    /* Intermediate States
+
+	    The following states should only be used as a mean to transition to
+	    other states.
+
+	     */
+	    Exit => {
+                Exit
+            }
+            Swapping => {
+                panic!(
+                    "Swapping: Status should only be used as a placeholder during delta transition"
+                )
+            }
+        }
     }
 
+    /* Movement: Up, Down, Left, Right
+     */
+    pub fn up(&mut self, neighbours: &Vec<Neighbours>) {
+        match neighbours[self.now.selected].top {
+            None => (),
+            Some(new_index) => self.now.selected = new_index,
+        }
+    }
+    pub fn down(&mut self, neighbours: &Vec<Neighbours>) {
+        match neighbours[self.now.selected].bottom {
+            None => (),
+            Some(new_index) => self.now.selected = new_index,
+        }
+    }
+    pub fn left(&mut self, neighbours: &Vec<Neighbours>) {
+        match neighbours[self.now.selected].left {
+            None => (),
+            Some(new_index) => self.now.selected = new_index,
+        }
+    }
+
+    pub fn right(&mut self, neighbours: &Vec<Neighbours>) {
+        match neighbours[self.now.selected].right {
+            None => (),
+            Some(new_index) => self.now.selected = new_index,
+        }
+    }
+
+    /* Movement: Go in
+
+    Attempts to go into the selected cell.
+
+    There are 4 cases:
+    1. The current cell represents a file. Then this is a no-op
+    2. The current cell is a directory. Then we save the current state into
+    history. [self.now] gets updated with new directory, [starting_index] and
+    [selected] both get set to first element in the directory.
+    3. The current cell represents "the tail" of the content in current directory.
+    Push [self.now] into history stack as in case 2. [self.now] stays in the same
+    directory, [starting_index] is updated, and [selected] resets to 0.
+    4. The current cell represents nothing. The most likely case is when the
+    current directory is empty. Regardless, this is a no-op.
+     */
+    pub fn go_in(&mut self, cells: &Vec<Cell>) {
+        let cell = &cells[self.now.selected];
+
+        match &cell.content {
+            CellContent::Inode(inode) => {
+                let inode_rc = inode.clone();
+
+                if let InodeDetail::Dir(_) = inode_rc.borrow().detail {
+                    let now = self.now.clone();
+                    let next = HistoryEntry {
+                        directory: inode.clone(),
+                        starting_index: 0,
+                        selected: 0,
+                    };
+                    self.history.push(now);
+                    self.now = next;
+                }
+            }
+            CellContent::Other(OtherCellContent { starting_index, .. }) => {
+                let now = self.now.clone();
+                let next = HistoryEntry {
+                    directory: self.now.directory.clone(),
+                    starting_index: *starting_index,
+                    selected: 0,
+                };
+                self.history.push(now);
+                self.now = next;
+            }
+            CellContent::Nothing => {}
+        }
+    }
+
+    /* Movement: Go out
+
+    Attempt to get out one level
+
+    Refreshing the directory or deleting a file can change the disk usage.
+    We recomputing the total usage on exiting a directory to reflect the change.
+    */
     pub fn go_out(&mut self) {
-	if 0 < self.history.len() {
-	    self.now = self.history.pop().unwrap();
-	    self.on = self.now.was_on;
-	    self.status = NeedRefresh;
-	}
+        if !self.history.is_empty() {
+            self.now = self.history.pop().unwrap();
+        }
+
+        let Inode {
+            usage,
+            detail: InodeDetail::Dir(children),
+	    ..
+        } = &mut (*(self.now.directory.borrow_mut()))
+        else {
+            panic!("Go Out: Exited to a non directory inode")
+        };
+        *usage = children.iter().map(|inode| inode.borrow().usage).sum();
+	children.sort_by_key(|inode| {
+	    inode.borrow().usage
+	});
     }
-
-
 }

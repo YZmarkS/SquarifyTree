@@ -1,45 +1,43 @@
 use std::{io, path::Path};
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use scanner::path_to_inode;
-
+mod inode;
+mod layout;
+mod main_loop;
+mod render;
 mod scanner;
 mod squarify;
-mod inode;
-// mod layout;
-// mod logic;
-// mod render;
-// use squarify::*;
-// use logic::*;
+mod logic;
+use main_loop::*;
+use inode::*;
+
 
 fn main() -> io::Result<()> {
-
-    // for arg in std::env::args() {
-    // 	println!("{arg}");
-    // }
-
-    let path = Path::new("/home/lemon/Projects");
+    let path = Path::new("/home/lemon/");
     let worker_pool_size = 10;
 
-    let mut state = path_to_inode(path);
+    let root_inode: Rc<RefCell<Inode>> = Rc::new(RefCell::new(Inode {
+        path: path.to_path_buf(),
+        usage: 0,
+        detail: InodeDetail::Dir(Vec::new()),
+    }));
 
-    // just_calc();
+    let mut state = State {
+        status: Status::StartScanning,
+        root_path: path.to_path_buf(),
+        worker_pool_size,
 
-    // ratatui::run(|terminal| state.ratatui_loop(terminal)).unwrap();
+        root_inode: root_inode.clone(),
+        history: Vec::new(),
+        now: HistoryEntry {
+            directory: root_inode.clone(),
+            starting_index: 100000,
+            selected: 0,
+        },
+    };
+
+    ratatui::run(|terminal| state.main_loop(terminal)).unwrap();
+
     Ok(())
-
-}
-
-#[allow(unused)]
-fn just_calc() {
-
-    // let path = Path::new("/home/lemon/Projects/SquarifyTree/C/src");
-    // let worker_pool_size = 10;
-
-    // let root_inode = path_to_inode(path, worker_pool_size);
-    // print_inodes(&root_inode, 0);
-
-    // if let InodeDetail::Dir(children) = &(root_inode.detail) {
-    // 	let layout = squarify(&children[..], 209 - 1, 51 - 1);
-    // 	print_layout(&layout, 0);
-    // }
 }
