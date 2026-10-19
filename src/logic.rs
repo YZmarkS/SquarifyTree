@@ -170,7 +170,6 @@ impl State {
 
 	    The following states should only be used as a mean to transition to
 	    other states.
-
 	     */
 	    Exit => {
                 Exit
@@ -266,9 +265,11 @@ impl State {
     We recomputing the total usage on exiting a directory to reflect the change.
     */
     pub fn go_out(&mut self) {
-        if !self.history.is_empty() {
-            self.now = self.history.pop().unwrap();
-        }
+	if self.history.is_empty() {
+	    return;
+	}
+
+	self.now = self.history.pop().unwrap();
 
         let Inode {
             usage,
@@ -282,5 +283,6 @@ impl State {
 	children.sort_by_key(|inode| {
 	    inode.borrow().usage
 	});
+	children.reverse();
     }
 }

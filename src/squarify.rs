@@ -41,6 +41,7 @@ fn calc_stack_spans(inodes: &[Rc<RefCell<Inode>>],
 	let truncated_span = precise_span.trunc() as Measure;
 
 	spans.push(truncated_span);
+
 	remaining_span -= truncated_span;
     }
 
