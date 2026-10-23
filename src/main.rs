@@ -1,6 +1,7 @@
 use std::{io, path::Path};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::env;
 
 mod inode;
 mod layout;
@@ -14,7 +15,10 @@ use inode::*;
 
 
 fn main() -> io::Result<()> {
-    let path = Path::new("/home/lemon/");
+
+    let args: Vec<String> = env::args().collect();
+
+    let path = Path::new(args.get(1).unwrap());
     let worker_pool_size = 10;
 
     let root_inode: Rc<RefCell<Inode>> = Rc::new(RefCell::new(Inode {
