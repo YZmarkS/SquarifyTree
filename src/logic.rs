@@ -253,7 +253,7 @@ impl State {
                 self.history.push(now);
                 self.now = next;
             }
-            CellContent::Nothing => {}
+            CellContent::Empty => {}
         }
     }
 

@@ -1,35 +1,37 @@
-use std::{io, path::Path};
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::env;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::{io, path::Path};
 
 mod inode;
 mod layout;
+mod logic;
 mod main_loop;
+mod path_util;
 mod render;
 mod scanner;
 mod squarify;
-mod logic;
-use main_loop::*;
 use inode::*;
-
+use main_loop::*;
 
 fn main() -> io::Result<()> {
 
     let args: Vec<String> = env::args().collect();
 
-    let path = Path::new(args.get(1).unwrap());
+    let path = Path::new(args.get(1).unwrap()).canonicalize().unwrap();
+
     let worker_pool_size = 10;
 
     let root_inode: Rc<RefCell<Inode>> = Rc::new(RefCell::new(Inode {
-        path: path.to_path_buf(),
+        path: path.clone(),
         usage: 0,
         detail: InodeDetail::Dir(Vec::new()),
     }));
 
     let mut state = State {
         status: Status::StartScanning,
-        root_path: path.to_path_buf(),
+        root_path: path.clone(),
         worker_pool_size,
 
         root_inode: root_inode.clone(),

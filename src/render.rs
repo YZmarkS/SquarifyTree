@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use ratatui::{
     layout::{Constraint, Layout, Spacing},
     prelude::*,
@@ -8,7 +10,7 @@ use ratatui::{
 };
 
 use crate::main_loop::*;
-use crate::{inode::DiskUsage, layout::*};
+use crate::{inode::*, layout::*};
 
 // https://en.wikipedia.org/wiki/Kilobyte
 const SI_STEP_SIZE: u128 = 1000;
@@ -48,28 +50,24 @@ impl State {
         selected_cell: &Cell,
         buf: &mut Buffer,
     ) {
-        let directory_path = self
-            .now
-            .directory
-            .borrow()
-            .path
-            .to_string_lossy()
-            .into_owned();
-        let selected_cell_name = get_cell_content_name(&selected_cell.content);
-        let selected_cell_usage = match get_cell_content_usage(&selected_cell.content) {
-            None => String::from("Nothing"),
-            Some(usage) => human_readable_usage(usage),
-        };
+        let directory = self.now.directory.borrow();
+        let directory_path = directory.path_directory_string();
+
+        let info_name = selected_cell.content.info_bar_name();
+        let info_usage = human_readable_usage(match selected_cell.content.usage() {
+            None => 0,
+            Some(usage) => usage,
+        });
 
         Paragraph::new(directory_path)
             .block(Block::bordered().merge_borders(MergeStrategy::Exact))
             .render(directory_block, buf);
 
-        Paragraph::new(selected_cell_name)
+        Paragraph::new(info_name)
             .block(Block::bordered().merge_borders(MergeStrategy::Exact))
             .render(file_name_block, buf);
 
-        Paragraph::new(selected_cell_usage)
+        Paragraph::new(info_usage)
             .block(Block::bordered().merge_borders(MergeStrategy::Exact))
             .render(file_info_block, buf);
     }
@@ -80,11 +78,17 @@ impl State {
             let Cell { rect, content } = &(cells[i]);
 
             let mut lines = Vec::new();
-            let cell_name = get_cell_content_name(content);
-            lines.push(Line::from(cell_name));
-            let maybe_cell_usage = get_cell_content_usage(content);
+            let cell_name = content.cell_base_name();
+            let maybe_cell_usage = content.usage();
+
+	    if cell_name.len() + 2 <= (rect.width as usize) {
+		lines.push(Line::from(cell_name));
+	    }
             if let Some(usage) = maybe_cell_usage {
-                lines.push(Line::from(human_readable_usage(usage)));
+		let readable_usage = human_readable_usage(usage);
+		if readable_usage.len() + 2 <= rect.width as usize {
+                    lines.push(Line::from(readable_usage));
+		}
             }
             let text = Text::from(lines);
 

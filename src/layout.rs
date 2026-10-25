@@ -96,7 +96,7 @@ pub struct Cell {
 pub enum CellContent {
     Inode(Rc<RefCell<Inode>>),
     Other(OtherCellContent),
-    Nothing,
+    Empty,
 }
 
 pub struct OtherCellContent {
@@ -104,27 +104,31 @@ pub struct OtherCellContent {
     pub usage: DiskUsage,
 }
 
-pub fn get_cell_content_name(content: &CellContent) -> String {
-    match content {
-        CellContent::Inode(inode) => inode
-            .clone()
-            .borrow()
-            .path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned(),
-        CellContent::Other(_) => String::from("Other"),
-        CellContent::Nothing => String::from("Nothing"),
+impl CellContent {
+    pub fn info_bar_name(&self) -> String {
+	match self {
+	    CellContent::Inode(inode) => inode.borrow().base_name_string(),
+	    CellContent::Other(_) => String::from("More Entries in Directory..."),
+	    CellContent::Empty => String::from("No more entries"),
+	}
     }
-}
 
-pub fn get_cell_content_usage(content: &CellContent) -> Option<DiskUsage> {
-    match content {
-        CellContent::Inode(inode) => Some(inode.clone().borrow().usage),
-        CellContent::Other(OtherCellContent { usage, .. }) => Some(*usage),
-        CellContent::Nothing => None,
+    pub fn usage(&self) -> Option<DiskUsage> {
+	match self {
+            CellContent::Inode(inode) => Some(inode.clone().borrow().usage),
+            CellContent::Other(OtherCellContent { usage, .. }) => Some(*usage),
+            CellContent::Empty => None
+	}
     }
+
+    pub fn cell_base_name(&self) -> String {
+	match self {
+	    CellContent::Inode(inode) => inode.borrow().base_name_string(),
+	    CellContent::Other(_) => String::from("Other..."),
+	    CellContent::Empty => String::from("Empty"),
+	}
+    }
+
 }
 
 pub type CellId = usize;
@@ -147,7 +151,7 @@ pub fn make_cell_list(
     if inodes.len() <= starting_index {
         cells.push(Cell {
             rect: rects[0],
-            content: Nothing,
+            content: Empty,
         });
         return cells;
     }
