@@ -1,8 +1,5 @@
 use crate::layout::*;
-use crate::logic::*;
-use crate::squarify::squarify;
 use crate::{inode::*, scanner::*};
-use crossterm::event::Event;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::{Block, Paragraph, Widget};
@@ -56,6 +53,34 @@ pub struct State {
     pub now: HistoryEntry,
 }
 
+impl State {
+    pub fn main_loop(&mut self, terminal: &mut DefaultTerminal) -> std::io::Result<()> {
+        use Status::*;
+        loop {
+            terminal.draw(|frame| self.widget_render(frame))?;
+
+            let old_status = replace(&mut self.status, Swapping);
+
+            let new_status: Status = self.delta(old_status);
+
+            match new_status {
+                Exit => {
+                    break;
+                }
+                other => {
+                    self.status = other;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn widget_render(&mut self, frame: &mut Frame) {
+        frame.render_widget(self, frame.area());
+    }
+}
+
+
 impl Widget for &mut State {
     fn render(self, area: Rect, buf: &mut Buffer) {
         use Status::*;
@@ -89,32 +114,5 @@ impl Widget for &mut State {
         };
 
         self.status = new_status;
-    }
-}
-
-impl State {
-    pub fn main_loop(&mut self, terminal: &mut DefaultTerminal) -> std::io::Result<()> {
-        use Status::*;
-        loop {
-            terminal.draw(|frame| self.draw(frame))?;
-
-            let old_status = replace(&mut self.status, Swapping);
-
-            let new_status: Status = self.delta(old_status);
-
-            match new_status {
-                Exit => {
-                    break;
-                }
-                other => {
-                    self.status = other;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn draw(&mut self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
     }
 }
