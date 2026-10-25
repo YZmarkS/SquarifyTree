@@ -8,7 +8,6 @@ mod inode;
 mod layout;
 mod logic;
 mod main_loop;
-mod path_util;
 mod render;
 mod scanner;
 mod squarify;
