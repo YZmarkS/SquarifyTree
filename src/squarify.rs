@@ -12,8 +12,8 @@ pub enum StackDirection {
 }
 
 const HEIGHT_TO_WIDTH_RATIO: Measure = 2;
-const CELL_MIN_MEASURE: Measure = 2;
-const SPLIT_THRESHOLD: Measure = 4;
+const CELL_MIN_MEASURE: Measure = 4;
+const SPLIT_THRESHOLD: Measure = 8;
 
 pub fn is_landscape(width: Measure, height: Measure) -> bool {
     height * HEIGHT_TO_WIDTH_RATIO <= width
@@ -31,6 +31,23 @@ fn calc_stack_breadth(usage: DiskUsage,
 fn calc_stack_spans(inodes: &[Rc<RefCell<Inode>>],
 		    total_span: Measure) -> Vec<Measure> {
     let total_usage: DiskUsage = inodes.iter().map(|inode| inode.borrow().usage).sum();
+
+    // What happens when all the inodes have 0 usage.
+    // TODO: You gotta fix this at some point man, please, this is so ugly
+    if total_usage == 0 {
+	let mut spans = Vec::new();
+	let len = inodes.len();
+	let base_span = total_span / len as Measure;
+	let remainder = total_span % len as Measure;
+	for _ in 0..remainder {
+	    spans.push(base_span + 1);
+	}
+	for _ in (remainder as usize)..len {
+	    spans.push(base_span);
+	}
+	return spans;
+    }
+
     let mut spans = Vec::new();
 
     let mut remaining_span = total_span;
@@ -38,6 +55,7 @@ fn calc_stack_spans(inodes: &[Rc<RefCell<Inode>>],
     for inode in inodes {
 	let inode_usage = inode.borrow().usage;
 	let precise_span = (total_span as f64) * (inode_usage as f64) / (total_usage as f64);
+
 	let truncated_span = precise_span.trunc() as Measure;
 
 	spans.push(truncated_span);
