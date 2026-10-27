@@ -12,6 +12,15 @@ pub enum StackDirection {
 }
 
 const HEIGHT_TO_WIDTH_RATIO: Measure = 2;
+
+const CELL_MIN_WIDTH: Measure = 8;
+const CELL_MIN_HEIGHT: Measure = 2;
+
+const SPLIT_LEFT_RIGHT_THRESHOLD: Measure = 16;
+const SPLIT_TOP_BOTTOM_THRESHOLD: Measure = 4;
+
+
+
 const CELL_MIN_MEASURE: Measure = 4;
 const SPLIT_THRESHOLD: Measure = 8;
 
@@ -74,6 +83,10 @@ fn calc_stack_spans(inodes: &[Rc<RefCell<Inode>>],
     spans
 }
 
+/* Wost Aspect Ratio
+
+Precondition: [spans] and [breadth] must be non-zero
+ */
 fn worst_aspect_ratio(spans: &[Measure],
 		      breadth: Measure,
 		      direction: &StackDirection) -> f64 {
