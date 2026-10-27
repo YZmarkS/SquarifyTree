@@ -217,6 +217,7 @@ fn collector(
     return ();
 }
 
+#[inline(never)]
 pub fn collector_inodes_to_inodes(
     collector_inodes: &HashMap<PathBuf, CollectorInode>,
 ) -> HashMap<PathBuf, Rc<RefCell<Inode>>> {
@@ -240,6 +241,7 @@ pub fn collector_inodes_to_inodes(
     result
 }
 
+#[inline(never)]
 pub fn populate_children_list(
     collector_inodes: &HashMap<PathBuf, CollectorInode>,
     inodes: &mut HashMap<PathBuf, Rc<RefCell<Inode>>>,
