@@ -7,3 +7,6 @@ edition = "2024"
 color-eyre = "0.6.5"
 crossterm = "0.29"
 ratatui = "0.30.2"
+
+[profile.release]
+debug = 1
