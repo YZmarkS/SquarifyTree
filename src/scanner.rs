@@ -268,10 +268,10 @@ impl TryFrom<Arc<Mutex<ScannerInode>>> for Inode {
         let detail = match &(*scanner_inode).detail {
             ScannerInodeDetail::Reg => InodeDetail::Reg,
             ScannerInodeDetail::Sym => InodeDetail::Sym,
-            ScannerInodeDetail::Dir(rc_children) => {
+            ScannerInodeDetail::Dir(arc_children) => {
                 let mut children = Vec::new();
-                for rc_child in rc_children {
-                    let inode = Inode::try_from(rc_child.to_owned())?;
+                for arc_child in arc_children {
+                    let inode = Inode::try_from(arc_child.to_owned())?;
                     children.push(Rc::new(RefCell::new(inode)));
                 }
                 children.sort_by_key(|inode| inode.borrow().usage);
