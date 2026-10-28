@@ -1,7 +1,7 @@
 use std::cell::RefCell;
-use std::collections::{self, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::fs::*;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use std::sync::RwLock;
@@ -17,50 +17,36 @@ use crate::inode::*;
 type InodeIndex = usize;
 type Pending = usize;
 
-pub enum Either<L, R> {
-    Left(L),
-    Right(R),
-}
-
 pub struct ScanJob {
-    path: PathBuf,
-    parent_path: Option<PathBuf>,
+    parent_id: Option<InodeIndex>,
+    directory_id: InodeIndex,
 }
 
 #[derive(Debug, Clone)]
-pub struct CollectorInode {
+pub struct ScannerInode {
     path: PathBuf,
-    parent_path: Option<PathBuf>,
     usage: DiskUsage,
-    detail: CollectorInodeDetail,
+    detail: ScannerInodeDetail,
+}
+
+pub struct DiscoverSignal {
+    parent_id: Option<InodeIndex>,
+    directory_id: InodeIndex,
+    pending: Pending,
 }
 
 #[derive(Debug, Clone)]
-pub enum CollectorInodeDetail {
+pub enum ScannerInodeDetail {
     Reg,
     Sym,
-    Dir(DirectoryDetail),
-}
-
-#[derive(Debug, Clone)]
-pub struct DirectoryDetail {
-    pending: usize,
-    child_paths: Vec<PathBuf>,
-}
-
-impl CollectorInode {
-    pub fn is_dir(&self) -> bool {
-        match self.detail {
-            CollectorInodeDetail::Dir(_) => true,
-            _ => false,
-        }
-    }
+    Dir(Vec<Arc<Mutex<ScannerInode>>>),
 }
 
 fn scanner(
+    directory_inodes: Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
     job_queue: Arc<Mutex<VecDeque<ScanJob>>>,
-    base_collected: Arc<RwLock<Option<HashMap<PathBuf, CollectorInode>>>>,
-    sender: Sender<CollectorInode>,
+    base_collected: Arc<RwLock<Option<Arc<Mutex<ScannerInode>>>>>,
+    sender: Sender<DiscoverSignal>,
 ) -> () {
     loop {
         /* Check there is job to be done */
@@ -68,108 +54,115 @@ fn scanner(
             break;
         }
 
-        let ScanJob { path, parent_path } = match (job_queue.lock().unwrap()).pop_front() {
+        let ScanJob {
+            parent_id,
+            directory_id,
+        } = match (job_queue.lock().unwrap()).pop_front() {
             Some(job) => job,
             None => continue,
         };
 
+        let directory_path = {
+	    let directory_inodes = directory_inodes.lock().unwrap();
+            let directory_inode = directory_inodes.get(directory_id).unwrap();
+            directory_inode.lock().unwrap().path.clone()
+        };
+
         let mut usage = 0;
         let mut pending = 0;
-        let mut child_paths: Vec<PathBuf> = Vec::new();
-        let mut jobs: Vec<ScanJob> = Vec::new();
+        let mut entry_inodes: Vec<Arc<Mutex<ScannerInode>>> = Vec::new();
+        let mut sub_directory_inodes: Vec<Arc<Mutex<ScannerInode>>> = Vec::new();
 
-        for entry_result in read_dir(&path).unwrap() {
+        for entry_result in read_dir(&directory_path).unwrap() {
             let entry = entry_result.unwrap();
 
             let entry_metadata = entry.metadata().unwrap();
             let entry_type = entry.file_type().unwrap();
             let entry_path = entry.path();
 
-            if entry_type.is_file() {
+            let entry_inode = if entry_type.is_file() {
                 let entry_usage = u128::from(entry_metadata.len());
                 usage += entry_usage;
-                sender
-                    .send(CollectorInode {
-                        path: entry_path.clone(),
-                        parent_path: Some(path.clone()),
-                        usage: entry_usage,
-                        detail: CollectorInodeDetail::Reg,
-                    })
-                    .unwrap();
+                Arc::new(Mutex::new(ScannerInode {
+                    path: entry_path,
+                    usage: entry_usage,
+                    detail: ScannerInodeDetail::Reg,
+                }))
             } else if entry_type.is_symlink() {
                 let entry_usage = u128::from(entry_metadata.len());
                 usage += entry_usage;
-                sender
-                    .send(CollectorInode {
-                        path: entry_path.clone(),
-                        parent_path: Some(path.clone()),
-                        usage: entry_usage,
-                        detail: CollectorInodeDetail::Sym,
-                    })
-                    .unwrap();
+                Arc::new(Mutex::new(ScannerInode {
+                    path: entry_path,
+                    usage: entry_usage,
+                    detail: ScannerInodeDetail::Sym,
+                }))
             } else if entry_type.is_dir() {
                 pending += 1;
-                jobs.push(ScanJob {
-                    path: entry_path.clone(),
-                    parent_path: Some(path.clone()),
-                });
+                let sub_directory_inode = Arc::new(Mutex::new(ScannerInode {
+                    path: entry_path,
+                    usage: 0,
+                    detail: ScannerInodeDetail::Dir(Vec::new()),
+                }));
+                sub_directory_inodes.push(Arc::clone(&sub_directory_inode));
+                sub_directory_inode
             } else {
-                // eprintln!(
-                //     "Unaccounted entry type {:?} produced by {:?}",
-                //     entry_type, entry_path
-                // );
-		continue;
+                continue;
             };
 
-            child_paths.push((&entry_path).clone());
+            entry_inodes.push(entry_inode);
         }
 
-        let inode = CollectorInode {
-            path,
-            parent_path,
-            usage,
-            detail: CollectorInodeDetail::Dir(DirectoryDetail {
-                pending,
-                child_paths,
-            }),
-        };
+        {
+	    let directory_inodes = directory_inodes.lock().unwrap();
+            let directory_inode = directory_inodes.get(directory_id).unwrap();
+	    let mut directory_inode = directory_inode.lock().unwrap();
+            directory_inode.usage = usage;
+            if let ScannerInodeDetail::Dir(children) = &mut directory_inode.detail {
+                for entry_inode in entry_inodes {
+                    children.push(entry_inode);
+                }
+            } else {
+                panic!("Scanner: Non-directory inode in job queue")
+            }
+        }
 
-        sender.send(inode).unwrap();
+        let _ = sender.send(DiscoverSignal {
+            parent_id,
+            directory_id,
+            pending,
+        });
 
-	let mut job_queue_locked = job_queue.lock().unwrap();
-        for job in jobs {
-	    (&mut job_queue_locked).push_back(job);
+        let mut directory_inodes = directory_inodes.lock().unwrap();
+        let mut job_queue = job_queue.lock().unwrap();
+
+        for sub_directory_inode in sub_directory_inodes {
+            let new_directory_id = directory_inodes.len();
+            directory_inodes.push(Arc::clone(&sub_directory_inode));
+
+            (&mut job_queue).push_back(ScanJob {
+                parent_id: Some(directory_id),
+                directory_id: new_directory_id,
+            });
         }
     }
     return ();
 }
 
 fn collector(
-    base_collected: Arc<RwLock<Option<HashMap<PathBuf, CollectorInode>>>>,
-    receiver: Receiver<CollectorInode>,
+    directory_inodes: Arc<Mutex<Vec<Arc<Mutex<ScannerInode>>>>>,
+    base_collected: Arc<RwLock<Option<Arc<Mutex<ScannerInode>>>>>,
+    receiver: Receiver<DiscoverSignal>,
 ) -> () {
-    use CollectorInodeDetail as CID;
-    let mut collector_inodes: HashMap<PathBuf, CollectorInode> = HashMap::new();
+    let mut pendings: HashMap<InodeIndex, Pending> = HashMap::new();
+    let mut parent_by_id: HashMap<InodeIndex, Option<InodeIndex>> = HashMap::new();
     loop {
-        let new_inode = receiver.recv().unwrap();
-        let curr_path = new_inode.path.clone();
-
-        collector_inodes.insert(curr_path.clone(), new_inode);
-
-        let curr_inode = collector_inodes.get(&curr_path).unwrap();
-
-        if !curr_inode.is_dir() {
-            continue;
-        }
-
-        let pending = if let CID::Dir(DirectoryDetail { pending, .. }) = curr_inode.detail {
-            pending
-        } else {
-            panic!(
-                "Scanning: {:?} should be a directory inode",
-                curr_inode.path
-            );
-        };
+        let DiscoverSignal {
+            parent_id: mut maybe_parent_id,
+            directory_id,
+            pending,
+        } = receiver.recv().unwrap();
+        pendings.insert(directory_id, pending);
+        parent_by_id.insert(directory_id, maybe_parent_id);
 
         /* Inode is a leaf directory
 
@@ -182,122 +175,115 @@ fn collector(
 
         let mut propagate = pending == 0;
 
-        let mut usage_to_add = curr_inode.usage;
-        let mut parent_path_option = curr_inode.parent_path.clone();
+        let directory_inodes = directory_inodes.lock().unwrap();
+
+        let directory_inode = directory_inodes.get(directory_id).unwrap().clone();
+        let mut usage_to_add = directory_inode.lock().unwrap().usage;
 
         while propagate {
-            if let Some(parent_path) = parent_path_option {
-                let parent_inode = collector_inodes.get_mut(&parent_path).unwrap();
-                let parent_pending =
-                    if let CID::Dir(DirectoryDetail { pending, .. }) = &mut (parent_inode.detail) {
-                        pending
-                    } else {
-                        panic!(
-                            "Scanning: Parent directory {:?} should be a directory inode",
-                            &parent_path
-                        );
-                    };
-
-                *parent_pending -= 1;
+            if let Some(parent_id) = maybe_parent_id {
+                let parent_inode = directory_inodes.get(parent_id).unwrap().clone();
+                let mut parent_inode = parent_inode.lock().unwrap();
                 parent_inode.usage += usage_to_add;
-
-                propagate = *parent_pending == 0;
                 usage_to_add = parent_inode.usage;
-                parent_path_option = parent_inode.parent_path.clone();
+
+                let parent_pending = pendings.get_mut(&parent_id).unwrap();
+                *parent_pending -= 1;
+                propagate = *parent_pending == 0;
+
+                maybe_parent_id = parent_by_id.get(&parent_id).unwrap().to_owned();
             } else {
                 break;
             }
         }
 
         if propagate {
-            *(base_collected.write().unwrap()) = Some(collector_inodes);
             break;
         }
     }
+
+    *(base_collected.write().unwrap()) =
+        Some(directory_inodes.lock().unwrap().get(0).unwrap().clone());
+
     return ();
-}
-
-#[inline(never)]
-pub fn collector_inodes_to_inodes(
-    collector_inodes: &HashMap<PathBuf, CollectorInode>,
-) -> HashMap<PathBuf, Rc<RefCell<Inode>>> {
-    let mut result = HashMap::new();
-
-    for (path, collector_inode) in collector_inodes.iter() {
-        use CollectorInodeDetail::*;
-        result.insert(
-            path.clone(),
-            Rc::new(RefCell::new(Inode {
-                path: collector_inode.path.clone(),
-                usage: collector_inode.usage,
-                detail: match collector_inode.detail {
-                    Reg => InodeDetail::Reg,
-                    Sym => InodeDetail::Sym,
-                    Dir(_) => InodeDetail::Dir(Vec::new()),
-                },
-            })),
-        );
-    }
-    result
-}
-
-#[inline(never)]
-pub fn populate_children_list(
-    collector_inodes: &HashMap<PathBuf, CollectorInode>,
-    inodes: &mut HashMap<PathBuf, Rc<RefCell<Inode>>>,
-) {
-    for (inode_path, collector_inode) in collector_inodes.iter() {
-        if let CollectorInodeDetail::Dir(DirectoryDetail { child_paths, .. }) =
-            &(collector_inode.detail)
-        {
-            let mut inodes_to_add = Vec::new();
-            for child_path in child_paths {
-                inodes_to_add.push(inodes.get(child_path).unwrap().clone());
-            }
-            let inode = inodes.get_mut(inode_path).unwrap();
-            if let InodeDetail::Dir(child_inodes) = &mut (inode.borrow_mut().detail) {
-                for inode_to_add in inodes_to_add.into_iter() {
-                    child_inodes.push(inode_to_add);
-                }
-		child_inodes.sort_by_key(|inode| inode.borrow().usage);
-		child_inodes.reverse();
-            } else {
-                panic!("Scanning: Directory collector inode was not mapped to directory inode");
-            }
-        }
-    }
 }
 
 pub fn scan_base_path(
     worker_pool_size: usize,
     base_path: PathBuf,
-    base_collected: Arc<RwLock<Option<HashMap<PathBuf, CollectorInode>>>>,
+    base_inode_collected: Arc<RwLock<Option<Arc<Mutex<ScannerInode>>>>>,
 ) {
-    let job_queue = Arc::new(Mutex::new(VecDeque::from(vec![ScanJob {
-        path: base_path.to_path_buf(),
-        parent_path: None,
-    }])));
+    let directory_inodes = Arc::new(Mutex::new(Vec::new()));
+    let job_queue = Arc::new(Mutex::new(VecDeque::new()));
+
+    let base_inode = Arc::new(Mutex::new(ScannerInode {
+        path: base_path,
+        usage: 0,
+        detail: ScannerInodeDetail::Dir(Vec::new()),
+    }));
+    directory_inodes
+        .lock()
+        .unwrap()
+        .push(Arc::clone(&base_inode));
+    job_queue.lock().unwrap().push_back(ScanJob {
+        parent_id: None,
+        directory_id: 0,
+    });
 
     let (sender, receiver) = mpsc::channel();
 
     let mut scanner_handles = vec![];
     for _ in 0..worker_pool_size {
-        let job_queue = (&job_queue).clone();
-        let base_collected = (&base_collected).clone();
+        let job_queue = Arc::clone(&job_queue);
+        let directory_inodes = Arc::clone(&directory_inodes);
+        let base_inode_collected = Arc::clone(&base_inode_collected);
         let sender = sender.clone();
         let handle = thread::spawn(move || {
-            scanner(job_queue, base_collected, sender);
+            scanner(directory_inodes, job_queue, base_inode_collected, sender);
         });
         scanner_handles.push(handle);
     }
 
-    let base_collected_clone = (&base_collected).clone();
-    let collector_handle = thread::spawn(|| {
-        collector(base_collected_clone, receiver);
+    let directory_inodes_clone = Arc::clone(&directory_inodes);
+    let base_inode_collected_clone = Arc::clone(&base_inode_collected);
+    let collector_handle = thread::spawn(move || {
+        collector(directory_inodes_clone, base_inode_collected_clone, receiver);
     });
 
     for handle in scanner_handles {
         handle.join().unwrap();
     }
     collector_handle.join().unwrap();
+}
+
+impl TryFrom<Arc<Mutex<ScannerInode>>> for Inode {
+    type Error = std::sync::PoisonError<ScannerInode>;
+    fn try_from(
+        scanner_inode_arc: Arc<Mutex<ScannerInode>>,
+    ) -> Result<Self, std::sync::PoisonError<ScannerInode>> {
+        let scanner_inode = scanner_inode_arc.lock().unwrap();
+        let path = scanner_inode.path.clone();
+        let usage = scanner_inode.usage;
+
+        let detail = match &(*scanner_inode).detail {
+            ScannerInodeDetail::Reg => InodeDetail::Reg,
+            ScannerInodeDetail::Sym => InodeDetail::Sym,
+            ScannerInodeDetail::Dir(rc_children) => {
+                let mut children = Vec::new();
+                for rc_child in rc_children {
+                    let inode = Inode::try_from(rc_child.to_owned())?;
+                    children.push(Rc::new(RefCell::new(inode)));
+                }
+                children.sort_by_key(|inode| inode.borrow().usage);
+                children.reverse();
+                InodeDetail::Dir(children)
+            }
+        };
+
+        return Ok(Inode {
+            path,
+            usage,
+            detail,
+        });
+    }
 }

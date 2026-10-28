@@ -18,11 +18,11 @@ use scanner::*;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
+    let path = Path::new(args.get(1).unwrap()).canonicalize().unwrap();
 
-    let env_path = std::env::var("SCAN_ROOT").unwrap();
+    // let env_path = std::env::var("SCAN_ROOT").unwrap();
+    // let path = PathBuf::from(env_path);
 
-    let path = PathBuf::from(env_path);
-    // let path = Path::new(args.get(1).unwrap()).canonicalize().unwrap();
 
     let worker_pool_size = 10;
 
@@ -32,43 +32,40 @@ fn main() -> io::Result<()> {
         detail: InodeDetail::Dir(Vec::new()),
     }));
 
-    let base_collected = Arc::new(RwLock::new(None));
-    let base_collected_clone = base_collected.clone();
-    scan_base_path(10, path, base_collected_clone);
+    // let base_inode_collected = Arc::new(RwLock::new(None));
+    // let base_collected_clone = base_inode_collected.clone();
+    // scan_base_path(10, path, base_collected_clone);
 
-    loop {
-        if base_collected.read().unwrap().is_none() {
-            continue;
-        }
-        break;
-    }
+    // loop {
+    //     if base_inode_collected.read().unwrap().is_none() {
+    //         continue;
+    //     }
+    //     break;
+    // }
 
-    let maybe_base_collected = base_collected.read().unwrap().to_owned();
-    let new_state = match maybe_base_collected {
-        None => panic!("impossible"),
-        Some(scanned_collector_inodes) => {
-	    println!("{:?}", scanned_collector_inodes.len());
-            let scanned_collector_inodes = scanned_collector_inodes.clone();
-            let mut inodes = collector_inodes_to_inodes(&scanned_collector_inodes);
-            populate_children_list(&scanned_collector_inodes, &mut inodes);
-        }
-    };
-
-    // let mut state = State {
-    //     status: Status::StartScanning,
-    //     root_path: path.clone(),
-    //     worker_pool_size,
-
-    //     root_inode: root_inode.clone(),
-    //     history: Vec::new(),
-    //     now: HistoryEntry {
-    //         directory: root_inode.clone(),
-    //         starting_index: 100000,
-    //         selected: 0,
-    //     },
+    // let maybe_base_inode_collected = base_inode_collected.read().unwrap().to_owned();
+    // match maybe_base_inode_collected {
+    //     None => panic!("impossible"),
+    //     Some(base_inode) => {
+    //         Rc::new(RefCell::new(Inode::try_from(base_inode).unwrap()));
+    //     }
     // };
 
-    // ratatui::run(|terminal| state.main_loop(terminal)).unwrap();
+    let mut state = State {
+        status: Status::StartScanning,
+        root_path: path.clone(),
+        worker_pool_size,
+
+        root_inode: root_inode.clone(),
+        history: Vec::new(),
+        now: HistoryEntry {
+            directory: root_inode.clone(),
+            starting_index: 100000,
+            selected: 0,
+        },
+    };
+
+    ratatui::run(|terminal| state.main_loop(terminal)).unwrap();
 
     Ok(())
 }

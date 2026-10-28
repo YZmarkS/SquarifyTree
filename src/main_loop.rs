@@ -1,5 +1,4 @@
-use crate::layout::*;
-use crate::{inode::*, scanner::*};
+use crate::{layout::*, inode::*, scanner::*};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::{Block, Paragraph, Widget};
@@ -8,7 +7,7 @@ use ratatui::{prelude::Rect, DefaultTerminal};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::replace;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Mutex};
 use std::thread::{self, JoinHandle};
 use std::{path::PathBuf, rc::Rc};
 
@@ -22,8 +21,8 @@ pub struct HistoryEntry {
 }
 
 pub struct ScanningContext {
-    pub base_collected: Arc<RwLock<Option<HashMap<PathBuf, CollectorInode>>>>,
-    pub scanning_thread_handle: JoinHandle<()>,
+    pub base_inode_collected: Arc<RwLock<Option<Arc<Mutex<ScannerInode>>>>>,
+    pub scanning_thread_handle: JoinHandle<()>
 }
 
 pub struct DisplayingContext {

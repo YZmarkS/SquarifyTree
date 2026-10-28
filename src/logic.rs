@@ -1,5 +1,6 @@
-use std::{sync::*, thread};
 use crossterm::event::Event;
+use std::rc::Rc;
+use std::{cell::RefCell, sync::*, thread};
 
 use crate::{inode::*, layout::*, main_loop::*, scanner::*, squarify::*};
 
@@ -21,41 +22,36 @@ impl State {
             complete, convert scanning result and transition to cleanup status.
              */
             StartScanning => {
-                let base_collected = Arc::new(RwLock::new(None));
-                let base_collected_thread = base_collected.clone();
+                let base_inode_collected = Arc::new(RwLock::new(None));
+                let base_inode_collected_clone = base_inode_collected.clone();
 
                 let worker_pool_size = self.worker_pool_size;
                 let base_path = self.now.directory.borrow().path.clone();
 
                 let scanning_thread_handle = thread::spawn(move || {
-                    scan_base_path(worker_pool_size, base_path, base_collected_thread);
+                    scan_base_path(worker_pool_size, base_path, base_inode_collected_clone);
                 });
 
                 Scanning(ScanningContext {
-                    base_collected,
+                    base_inode_collected,
                     scanning_thread_handle,
                 })
             }
             Scanning(ScanningContext {
-                base_collected,
+                base_inode_collected,
                 scanning_thread_handle,
             }) => {
-                let maybe_base_collected = base_collected.read().unwrap().to_owned();
-                let new_state = match maybe_base_collected {
+                let maybe_base_inode_collected = base_inode_collected.read().unwrap().to_owned();
+                let new_state = match maybe_base_inode_collected {
                     None => Scanning(ScanningContext {
-                        base_collected,
+                        base_inode_collected,
                         scanning_thread_handle,
                     }),
-                    Some(scanned_collector_inodes) => {
+                    Some(base_inode) => {
                         scanning_thread_handle.join().unwrap();
 
-                        let scanned_collector_inodes = scanned_collector_inodes.clone();
-                        let mut inodes = collector_inodes_to_inodes(&scanned_collector_inodes);
-                        populate_children_list(&scanned_collector_inodes, &mut inodes);
-
-                        let base_path = self.now.directory.borrow().path.clone();
-                        let new_base_inode = inodes.get(&base_path).unwrap().to_owned();
-
+                        let new_base_inode =
+                            Rc::new(RefCell::new(Inode::try_from(base_inode).unwrap()));
                         self.now.directory.swap(&new_base_inode);
 
                         ResetDirectoryHistory
@@ -115,65 +111,59 @@ impl State {
                 Displaying(DisplayingContext { cells, neighbours })
             }
 
-	    /* Displaying and Waiting for User Input
+            /* Displaying and Waiting for User Input
 
-	    If there are no computation to be done, then the application is
-	    waiting for some terminal event to happen.
+            If there are no computation to be done, then the application is
+            waiting for some terminal event to happen.
 
-	    The code is ugly but necessary.
-	     */
+            The code is ugly but necessary.
+             */
             Displaying(DisplayingContext { cells, neighbours }) => {
                 let event = crossterm::event::read().unwrap();
-                    match event {
-                        Event::Resize(_, _) => GetCanvasSize,
-                        Event::Key(key_event) => {
-                            use crossterm::event::KeyCode;
-                            match &key_event.code {
-                                KeyCode::Up => {
-                                    self.up(&neighbours);
-                                    Displaying(DisplayingContext { cells, neighbours })
-                                }
-                                KeyCode::Down => {
-                                    self.down(&neighbours);
-                                    Displaying(DisplayingContext { cells, neighbours })
-                                }
-                                KeyCode::Left => {
-                                    self.left(&neighbours);
-                                    Displaying(DisplayingContext { cells, neighbours })
-                                }
-                                KeyCode::Right => {
-                                    self.right(&neighbours);
-                                    Displaying(DisplayingContext { cells, neighbours })
-                                }
-                                KeyCode::Backspace => {
-                                    self.go_out();
-                                    GetCanvasSize
-                                }
-                                KeyCode::Enter => {
-                                    self.go_in(&cells);
-                                    GetCanvasSize
-                                }
-				KeyCode::Char('r') => {
-				    StartScanning
-				}
-                                KeyCode::Char('q') => {
-				    Exit
-                                }
-                                _ => Displaying(DisplayingContext { cells, neighbours }),
+                match event {
+                    Event::Resize(_, _) => GetCanvasSize,
+                    Event::Key(key_event) => {
+                        use crossterm::event::KeyCode;
+                        match &key_event.code {
+                            KeyCode::Up => {
+                                self.up(&neighbours);
+                                Displaying(DisplayingContext { cells, neighbours })
                             }
+                            KeyCode::Down => {
+                                self.down(&neighbours);
+                                Displaying(DisplayingContext { cells, neighbours })
+                            }
+                            KeyCode::Left => {
+                                self.left(&neighbours);
+                                Displaying(DisplayingContext { cells, neighbours })
+                            }
+                            KeyCode::Right => {
+                                self.right(&neighbours);
+                                Displaying(DisplayingContext { cells, neighbours })
+                            }
+                            KeyCode::Backspace => {
+                                self.go_out();
+                                GetCanvasSize
+                            }
+                            KeyCode::Enter => {
+                                self.go_in(&cells);
+                                GetCanvasSize
+                            }
+                            KeyCode::Char('r') => StartScanning,
+                            KeyCode::Char('q') => Exit,
+                            _ => Displaying(DisplayingContext { cells, neighbours }),
                         }
-                        _ => Displaying(DisplayingContext { cells, neighbours }),
                     }
+                    _ => Displaying(DisplayingContext { cells, neighbours }),
+                }
             }
 
-	    /* Intermediate States
+            /* Intermediate States
 
-	    The following states should only be used as a mean to transition to
-	    other states.
-	     */
-	    Exit => {
-                Exit
-            }
+            The following states should only be used as a mean to transition to
+            other states.
+             */
+            Exit => Exit,
             Swapping => {
                 panic!(
                     "Swapping: Status should only be used as a placeholder during delta transition"
@@ -265,24 +255,22 @@ impl State {
     We recomputing the total usage on exiting a directory to reflect the change.
     */
     pub fn go_out(&mut self) {
-	if self.history.is_empty() {
-	    return;
-	}
+        if self.history.is_empty() {
+            return;
+        }
 
-	self.now = self.history.pop().unwrap();
+        self.now = self.history.pop().unwrap();
 
         let Inode {
             usage,
             detail: InodeDetail::Dir(children),
-	    ..
+            ..
         } = &mut (*(self.now.directory.borrow_mut()))
         else {
             panic!("Go Out: Exited to a non directory inode")
         };
         *usage = children.iter().map(|inode| inode.borrow().usage).sum();
-	children.sort_by_key(|inode| {
-	    inode.borrow().usage
-	});
-	children.reverse();
+        children.sort_by_key(|inode| inode.borrow().usage);
+        children.reverse();
     }
 }
