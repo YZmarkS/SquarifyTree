@@ -30,8 +30,8 @@ pub fn print_inodes(inode: &Rc<RefCell<Inode>>, indent: u8) -> () {
 	print!("    ");
     }
     println!("{:?} {:?}",
-	     inode.borrow().path,
-	     inode.borrow().usage);
+	     inode.borrow().usage,
+	     inode.borrow().path);
     if let InodeDetail::Dir(children) = &(inode.borrow().detail) {
 	for child in children {
 	    print_inodes(child, indent + 1);

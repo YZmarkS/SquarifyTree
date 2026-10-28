@@ -44,12 +44,15 @@ fn main() -> io::Result<()> {
     // }
 
     // let maybe_base_inode_collected = base_inode_collected.read().unwrap().to_owned();
-    // match maybe_base_inode_collected {
+
+    // let inode_rc = match maybe_base_inode_collected {
     //     None => panic!("impossible"),
     //     Some(base_inode) => {
-    //         Rc::new(RefCell::new(Inode::try_from(base_inode).unwrap()));
+    //         Rc::new(RefCell::new(Inode::try_from(base_inode).unwrap()))
     //     }
     // };
+
+    // print_inodes(&inode_rc, 0);
 
     let mut state = State {
         status: Status::StartScanning,
