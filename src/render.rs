@@ -75,7 +75,7 @@ impl State {
     fn render_cells(&self, cells: &Vec<Cell>, buf: &mut Buffer) {
         let selected = self.now.selected;
         for i in 0..cells.len() {
-	    let cell = &(cells[i]);
+            let cell = &(cells[i]);
 
             let mut lines = Vec::new();
 
@@ -162,7 +162,7 @@ impl CellContent {
 
 impl Cell {
     pub fn cell_base_name(&self) -> String {
-        let internal_width = self.rect.width - 2;
+        let internal_width: usize = (self.rect.width - 2) as usize;
         match &self.content {
             CellContent::Inode(inode) => {
                 let inode = inode.borrow();
@@ -172,18 +172,21 @@ impl Cell {
                     if base_name_string.len() <= internal_width as usize {
                         base_name_string
                     } else {
-                        let room = (internal_width as usize) - "[..]".len();
-                        let extension: Option<String> = base_name_pathbuf
-                            .extension()
-                            .and_then(|ext| ext.to_str())
-                            .and_then(|s| Some(s.into()));
-			// If there is room for first char, a dot, and the extension
-                        if extension.clone().is_some_and(|ext| ext.len() <= room - 1 - 1) {
+                        let extension = base_name_pathbuf.extension().and_then(|ext| ext.to_str());
+                        // If there is room for first char, a dot, and the extension
+                        if extension
+                            .clone()
+                            .is_some_and(|ext| 1 + "[..]".len() + 1 + ext.len() <= internal_width)
+                        {
                             if let Some(extension) = extension {
-                                let front_len = room - extension.len() - 1;
+                                let stem = base_name_pathbuf.file_stem().unwrap().to_str().unwrap();
+				let room = internal_width - ("[..]".len() + 1 + extension.len());
+                                let back_len = room / 2;
+                                let front_len = room - back_len;
                                 format!(
-                                    "{}[..].{}",
-                                    base_name_string[..front_len].to_string(),
+                                    "{}[..]{}.{}",
+                                    stem[..front_len].to_string(),
+                                    stem[stem.len() - back_len..].to_string(),
                                     extension
                                 )
                             } else {
@@ -193,6 +196,7 @@ impl Cell {
                                 )
                             }
                         } else {
+			    let room = internal_width - "[..]".len();
                             let back_len = room / 2;
                             let front_len = room - back_len;
                             format!(
@@ -206,8 +210,8 @@ impl Cell {
                     if base_name_string.len() <= (internal_width - 1) as usize {
                         base_name_pathbuf.join("").to_string_lossy().into_owned()
                     } else {
-			let room = (internal_width as usize) - "[..]".len() - 1;
-			let back_len = room / 2;
+                        let room = internal_width - ("[..]".len() + 1);
+                        let back_len = room / 2;
                         let front_len = room - back_len;
                         format!(
                             "{}[..]{}{}",
