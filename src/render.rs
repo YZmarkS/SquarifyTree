@@ -208,7 +208,7 @@ impl Cell {
                     } else {
 			let room = (internal_width as usize) - "[..]".len() - 1;
 			let back_len = room / 2;
-                        let front_len = room - back_len - 1;
+                        let front_len = room - back_len;
                         format!(
                             "{}[..]{}{}",
                             base_name_string[..front_len].to_string(),
