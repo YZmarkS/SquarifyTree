@@ -104,33 +104,6 @@ pub struct OtherCellContent {
     pub usage: DiskUsage,
 }
 
-impl CellContent {
-    pub fn info_bar_name(&self) -> String {
-	match self {
-	    CellContent::Inode(inode) => inode.borrow().base_name_string(),
-	    CellContent::Other(_) => String::from("More Entries in Directory..."),
-	    CellContent::Empty => String::from("No more entries"),
-	}
-    }
-
-    pub fn usage(&self) -> Option<DiskUsage> {
-	match self {
-            CellContent::Inode(inode) => Some(inode.clone().borrow().usage),
-            CellContent::Other(OtherCellContent { usage, .. }) => Some(*usage),
-            CellContent::Empty => None
-	}
-    }
-
-    pub fn cell_base_name(&self) -> String {
-	match self {
-	    CellContent::Inode(inode) => inode.borrow().base_name_string(),
-	    CellContent::Other(_) => String::from("Other..."),
-	    CellContent::Empty => String::from("Empty"),
-	}
-    }
-
-}
-
 pub type CellId = usize;
 
 pub struct Neighbours {

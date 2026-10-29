@@ -9,8 +9,8 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use crate::main_loop::*;
 use crate::{inode::*, layout::*};
+use crate::{main_loop::*, squarify::CELL_MIN_WIDTH};
 
 // https://en.wikipedia.org/wiki/Kilobyte
 const SI_STEP_SIZE: u128 = 1000;
@@ -51,13 +51,13 @@ impl State {
         buf: &mut Buffer,
     ) {
         let directory = self.now.directory.borrow();
-        let directory_path = directory.path_directory_string();
+        let directory_path = directory.full_path_with_trailing_separator();
 
         let info_name = selected_cell.content.info_bar_name();
-        let info_usage = human_readable_usage(match selected_cell.content.usage() {
-            None => 0,
-            Some(usage) => usage,
-        });
+        let info_usage = match selected_cell.content.cell_usage_string() {
+            None => String::from("Empty"),
+            Some(usage_string) => usage_string,
+        };
 
         Paragraph::new(directory_path)
             .block(Block::bordered().merge_borders(MergeStrategy::Exact))
@@ -75,20 +75,13 @@ impl State {
     fn render_cells(&self, cells: &Vec<Cell>, buf: &mut Buffer) {
         let selected = self.now.selected;
         for i in 0..cells.len() {
-            let Cell { rect, content } = &(cells[i]);
+	    let cell = &(cells[i]);
 
             let mut lines = Vec::new();
-            let cell_name = content.cell_base_name();
-            let maybe_cell_usage = content.usage();
 
-	    if cell_name.len() + 2 <= (rect.width as usize) {
-		lines.push(Line::from(cell_name));
-	    }
-            if let Some(usage) = maybe_cell_usage {
-		let readable_usage = human_readable_usage(usage);
-		if readable_usage.len() + 2 <= rect.width as usize {
-                    lines.push(Line::from(readable_usage));
-		}
+            lines.push(Line::from(cell.cell_base_name()));
+            if let Some(usage_string) = cell.content.cell_usage_string() {
+                lines.push(Line::from(usage_string));
             }
             let text = Text::from(lines);
 
@@ -97,9 +90,9 @@ impl State {
             let outer_block = Block::bordered().merge_borders(MergeStrategy::Exact);
             let inner_block =
                 Paragraph::new(text).style(if i == selected { on_style } else { off_style });
-            let inner_area = outer_block.inner(*rect);
+            let inner_area = outer_block.inner(cell.rect);
 
-            outer_block.render(*rect, buf);
+            outer_block.render(cell.rect, buf);
             inner_block.render(inner_area, buf);
         }
     }
@@ -145,4 +138,90 @@ fn human_readable_usage(usage: DiskUsage) -> String {
     };
 
     format!("{value} {unit}")
+}
+
+impl CellContent {
+    pub fn info_bar_name(&self) -> String {
+        match self {
+            CellContent::Inode(inode) => inode.borrow().base_name_formatted_string(),
+            CellContent::Other(_) => String::from("More Entries in Directory..."),
+            CellContent::Empty => String::from("Empty Directory"),
+        }
+    }
+
+    pub fn cell_usage_string(&self) -> Option<String> {
+        match self {
+            CellContent::Inode(inode) => Some(human_readable_usage(inode.clone().borrow().usage)),
+            CellContent::Other(OtherCellContent { usage, .. }) => {
+                Some(human_readable_usage(*usage))
+            }
+            CellContent::Empty => None,
+        }
+    }
+}
+
+impl Cell {
+    pub fn cell_base_name(&self) -> String {
+        let internal_width = self.rect.width - 2;
+        match &self.content {
+            CellContent::Inode(inode) => {
+                let inode = inode.borrow();
+                let base_name_pathbuf = inode.base_name_pathbuf();
+                let base_name_string: String = base_name_pathbuf.to_string_lossy().into();
+                if inode.is_reg() || inode.is_sym() {
+                    if base_name_string.len() <= internal_width as usize {
+                        base_name_string
+                    } else {
+                        let room = (internal_width as usize) - "[..]".len();
+                        let extension: Option<String> = base_name_pathbuf
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                            .and_then(|s| Some(s.into()));
+			// If there is room for first char, a dot, and the extension
+                        if extension.clone().is_some_and(|ext| ext.len() <= room - 1 - 1) {
+                            if let Some(extension) = extension {
+                                let front_len = room - extension.len() - 1;
+                                format!(
+                                    "{}[..].{}",
+                                    base_name_string[..front_len].to_string(),
+                                    extension
+                                )
+                            } else {
+                                panic!(
+                                    "Render - cell_base_name: Cannot find extension for {:?}",
+                                    base_name_pathbuf
+                                )
+                            }
+                        } else {
+                            let back_len = room / 2;
+                            let front_len = room - back_len;
+                            format!(
+                                "{}[..]{}",
+                                base_name_string[..front_len].to_string(),
+                                base_name_string[base_name_string.len() - back_len..].to_string()
+                            )
+                        }
+                    }
+                } else if inode.is_dir() {
+                    if base_name_string.len() <= (internal_width - 1) as usize {
+                        base_name_pathbuf.join("").to_string_lossy().into_owned()
+                    } else {
+			let room = (internal_width as usize) - "[..]".len() - 1;
+			let back_len = room / 2;
+                        let front_len = room - back_len - 1;
+                        format!(
+                            "{}[..]{}{}",
+                            base_name_string[..front_len].to_string(),
+                            base_name_string[base_name_string.len() - back_len..].to_string(),
+                            std::path::MAIN_SEPARATOR
+                        )
+                    }
+                } else {
+                    panic!("Render - cell_base_name: Unknown inode type")
+                }
+            }
+            CellContent::Other(_) => String::from("..."),
+            CellContent::Empty => String::from("Empty Directory"),
+        }
+    }
 }
