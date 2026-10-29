@@ -1,14 +1,15 @@
-use crate::{layout::*, inode::*, scanner::*};
+use crate::{inode::*, layout::*, scanner::*};
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Direction, Flex, Layout};
 use ratatui::widgets::{Block, Paragraph, Widget};
 use ratatui::Frame;
 use ratatui::{prelude::Rect, DefaultTerminal};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::replace;
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{path::PathBuf, rc::Rc};
 
 type CellIndex = usize;
@@ -22,7 +23,7 @@ pub struct HistoryEntry {
 
 pub struct ScanningContext {
     pub base_inode_collected: Arc<RwLock<Option<Arc<Mutex<ScannerInode>>>>>,
-    pub scanning_thread_handle: JoinHandle<()>
+    pub scanning_thread_handle: JoinHandle<()>,
 }
 
 pub struct DisplayingContext {
@@ -79,7 +80,6 @@ impl State {
     }
 }
 
-
 impl Widget for &mut State {
     fn render(self, area: Rect, buf: &mut Buffer) {
         use Status::*;
@@ -98,9 +98,26 @@ impl Widget for &mut State {
                 CalcNewLayout(middle)
             }
             Scanning(scanning_context) => {
-                Paragraph::new("Scanning")
-                    .block(Block::bordered())
-                    .render(area, buf);
+                // Order box
+                Block::bordered().render(area, buf);
+
+                let [mid_col] = Layout::new(Direction::Horizontal, vec![Constraint::Max(50)])
+                    .flex(Flex::Center)
+                    .areas(area);
+                let [mid_box] = Layout::new(Direction::Vertical, vec![Constraint::Max(9)])
+                    .flex(Flex::Center)
+                    .areas(mid_col);
+                let mid_text_area = mid_box.centered(Constraint::Max(12), Constraint::Max(1));
+
+                let dots = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+                    / 250 % 4;
+                let scanning_string = format!("Scanning{}", ".".repeat(dots as usize));
+
+                Block::bordered().render(mid_box, buf);
+                Paragraph::new(scanning_string).render(mid_text_area, buf);
 
                 Scanning(scanning_context)
             }
