@@ -1,5 +1,6 @@
 use crossterm::event::Event;
 use std::rc::Rc;
+use std::time::Duration;
 use std::{cell::RefCell, sync::*, thread};
 
 use crate::{inode::*, layout::*, main_loop::*, scanner::*, squarify::*};
@@ -42,11 +43,31 @@ impl State {
                 scanning_thread_handle,
             }) => {
                 let maybe_base_inode_collected = base_inode_collected.read().unwrap().to_owned();
+		use crossterm::event::KeyCode;
                 let new_state = match maybe_base_inode_collected {
-                    None => Scanning(ScanningContext {
-                        base_inode_collected,
-                        scanning_thread_handle,
-                    }),
+                    None => {
+                        if let Ok(true) = crossterm::event::poll(Duration::from_millis(20)) {
+                            let event = crossterm::event::read().unwrap();
+                            match event {
+                                Event::Key(key_event) => match key_event.code {
+                                    KeyCode::Char('q') => Exit,
+                                    _ => Scanning(ScanningContext {
+                                        base_inode_collected,
+                                        scanning_thread_handle,
+                                    }),
+                                },
+                                _ => Scanning(ScanningContext {
+                                    base_inode_collected,
+                                    scanning_thread_handle,
+                                }),
+                            }
+                        } else {
+                            Scanning(ScanningContext {
+                                base_inode_collected,
+                                scanning_thread_handle,
+                            })
+                        }
+                    }
                     Some(base_inode) => {
                         scanning_thread_handle.join().unwrap();
 
