@@ -63,7 +63,7 @@ fn scanner(
         };
 
         let directory_path = {
-	    let directory_inodes = directory_inodes.lock().unwrap();
+            let directory_inodes = directory_inodes.lock().unwrap();
             let directory_inode = directory_inodes.get(directory_id).unwrap();
             directory_inode.lock().unwrap().path.clone()
         };
@@ -73,49 +73,92 @@ fn scanner(
         let mut entry_inodes: Vec<Arc<Mutex<ScannerInode>>> = Vec::new();
         let mut sub_directory_inodes: Vec<Arc<Mutex<ScannerInode>>> = Vec::new();
 
-        for entry_result in read_dir(&directory_path).unwrap() {
-            let entry = entry_result.unwrap();
+        if let Ok(entries) = read_dir(&directory_path) {
+            for entry_result in entries {
+                let entry = match entry_result {
+                    Ok(entry) => entry,
+                    Err(_) => {
+                        /* Error Reading Directory Entry
 
-            let entry_metadata = entry.metadata().unwrap();
-            let entry_type = entry.file_type().unwrap();
-            let entry_path = entry.path();
+                        - Error occurred fetching the next entry from the OS.
+                        - etc.
 
-            let entry_inode = if entry_type.is_file() {
-                let entry_usage = u128::from(entry_metadata.len());
-                usage += entry_usage;
-                Arc::new(Mutex::new(ScannerInode {
-                    path: entry_path,
-                    usage: entry_usage,
-                    detail: ScannerInodeDetail::Reg,
-                }))
-            } else if entry_type.is_symlink() {
-                let entry_usage = u128::from(entry_metadata.len());
-                usage += entry_usage;
-                Arc::new(Mutex::new(ScannerInode {
-                    path: entry_path,
-                    usage: entry_usage,
-                    detail: ScannerInodeDetail::Sym,
-                }))
-            } else if entry_type.is_dir() {
-                pending += 1;
-                let sub_directory_inode = Arc::new(Mutex::new(ScannerInode {
-                    path: entry_path,
-                    usage: 0,
-                    detail: ScannerInodeDetail::Dir(Vec::new()),
-                }));
-                sub_directory_inodes.push(Arc::clone(&sub_directory_inode));
-                sub_directory_inode
-            } else {
-                continue;
-            };
+                        https://doc.rust-lang.org/std/fs/struct.ReadDir.html
+                        */
+                        continue;
+                    }
+                };
+                let entry_metadata = match entry.metadata() {
+                    Ok(metadata) => metadata,
+                    Err(_) => {
+                        /* Error Reading Metadata
 
-            entry_inodes.push(entry_inode);
+                        - User lacks permission to perform metadata call on path.
+                        - Path does not exists.
+                        - etc.
+
+                        https://doc.rust-lang.org/std/fs/struct.ReadDir.html
+                        */
+                        continue;
+                    }
+                };
+
+                let entry_type = entry.file_type().unwrap();
+                let entry_path = entry.path();
+
+                let entry_inode = if entry_type.is_file() {
+                    let entry_usage = u128::from(entry_metadata.len());
+                    usage += entry_usage;
+                    Arc::new(Mutex::new(ScannerInode {
+                        path: entry_path,
+                        usage: entry_usage,
+                        detail: ScannerInodeDetail::Reg,
+                    }))
+                } else if entry_type.is_symlink() {
+                    let entry_usage = u128::from(entry_metadata.len());
+                    usage += entry_usage;
+                    Arc::new(Mutex::new(ScannerInode {
+                        path: entry_path,
+                        usage: entry_usage,
+                        detail: ScannerInodeDetail::Sym,
+                    }))
+                } else if entry_type.is_dir() {
+                    pending += 1;
+                    let sub_directory_inode = Arc::new(Mutex::new(ScannerInode {
+                        path: entry_path,
+                        usage: 0,
+                        detail: ScannerInodeDetail::Dir(Vec::new()),
+                    }));
+                    sub_directory_inodes.push(Arc::clone(&sub_directory_inode));
+                    sub_directory_inode
+                } else {
+                    continue;
+                };
+
+                entry_inodes.push(entry_inode);
+            }
+        } else {
+            /* Error Reading Directory
+
+            - The provided path doesn't exists.
+            - The process lacks the permission to view the content.
+            - The path points at a non-directory file
+            - etc.
+
+            Notice the folder existed when this job was pushed into the queue.
+            Reversing the job is difficulty.
+            We simply treat the directory as empty. Afterall, to a user without
+            permission to modify the directory, what is the difference between
+            and empty directory and an non-accessibly directory?
+
+            https://doc.rust-lang.org/std/fs/fn.read_dir.html
+             */
         }
 
         {
-	    let directory_inodes = directory_inodes.lock().unwrap();
+            let directory_inodes = directory_inodes.lock().unwrap();
             let directory_inode = directory_inodes.get(directory_id).unwrap();
-	    let mut directory_inode = directory_inode.lock().unwrap();
+            let mut directory_inode = directory_inode.lock().unwrap();
             directory_inode.usage = usage;
             if let ScannerInodeDetail::Dir(children) = &mut directory_inode.detail {
                 for entry_inode in entry_inodes {
@@ -177,8 +220,10 @@ fn collector(
 
         let directory_inodes = directory_inodes.lock().unwrap();
 
-        let directory_inode = directory_inodes.get(directory_id).unwrap().clone();
-        let mut usage_to_add = directory_inode.lock().unwrap().usage;
+        let mut usage_to_add = {
+	    let directory_inode = directory_inodes.get(directory_id).unwrap().clone();
+	    directory_inode.lock().unwrap().usage
+	};
 
         while propagate {
             if let Some(parent_id) = maybe_parent_id {
