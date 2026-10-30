@@ -2,47 +2,84 @@
 
 Here are some initial thoughts on how to design a multithreaded directory explorer.
 
-* Worker Pool
+* Challenges and Concepts
 
-A worker pool is created on the start of scan.
+In this section, we build up the understanding needed to design a multi-threaded directory scanner. We will review a reasonable single-threaded scanner, identify why it cannot be directly translated into a multi-threaded setting, then develop a multi-threaded algorithm using the lessons learned.
 
-When need to scan a directory, perform the global operation:
-#+begin_quote
-Create a ~SimpleInode*~ for the said directory, and place the said ~SimpleInode*~ into a work queue.
-#+end_quote
+** Single-threaded DFS Scanner
 
-A worker pick up a task (a.k.a ~inode~) from the queue, and perform the following operations:
+Consider the following DFS implementation of directory scanning:
+#+begin_src python
+  class Inode:
+      def __init__(path, usage=0):
+          self.path = path
+          self.usage = usage
+          self.children = []
 
-#+begin_src
-  inode := job_queue.pop()
-  dir_stream := opendir(inode)
+  def scan_dfs(path: Path) -> Inode:
+      if (path is file):
+          usage = usage_of_file(path)
+          return Inode(path, usage)
 
-  children_inodes = []
-  num_subdir = 0
-  subdir_inodes = []
-
-  for entry in dir_stream:
-    new_inode := create_new_inode(entry)
-    fill new_inode with information
-    append(children_inodes, new_inode)
-
-    if entry is DIR:
-      num_subdirectories++
-      append(subdir_inodes, new_inode)
-
-  awaiting_queue[inode] := num_subdirectories
-
-  for subdir_inode in subdir_inodes:
-    job_queue.insert( subdir_inode )
-    parent[subdir_inode] = inode
+      directory_inode = Inode(path)
+      for entry in read_dir(path):
+          child_inode = scan_dfs(entry.path)
+          directory_inode.usage += child_inode.usage
+          directory_inode.childen.append(child_inode)
+      return directory_inode
 #+end_src
 
-There is one more worker thread working on the following:
+There are a few benefit to this algorithm:
+1. The output ~Inode~ has a shape isomorphism to the file structure.
+2. Each subdirectory is scanned to completion before returned to the parent, making post processing unnecessary.
 
+Naively, it would appear the ~for~ loop be parallelized. However, consider the following directory:
 #+begin_src
-  dir_inode := some inode such that awaiting_queue[inode] == 0
-  awaiting_queue.remove(dir_inode)
-  dir_inode_parent = parent[dir_inode]
-  awaiting_queue[dir_inode_parent]--
+  /
+  ├── A
+  │   └── AA
+  └── B
+      ├── BA
+      │   ├── BAA
+      │   ├── ...
+      │   └── BAZ
+      ├── ...
+      └── BZ
 #+end_src
+
+This example demonstrates two challenges:
+1. The task is too coarse grained, and we cannot know the task size until a directory is completely explored. This may lead to poor load balancing between threads.
+2. Parallelizing at each directory level leads to unbounded thread count. It is likely we will pay more in overhead than actual computation.
+
+** Single-threaded BFS Scanner
+
+Consider the following single-threaded BFS scanner:
+#+begin_src python
+  def scan_bfs(path: Path) -> Inode:
+      job_queue = deque([path])
+
+      while job_queue:
+          path = job_queue.pop_left()
+          new_inode = Inode(path)
+
+          if (path is directory):
+              for entry in read_dir(path):
+                  job_queue.push_right(entry.path)
+
+          # Postprocessing
+
+      return # root inode
+#+end_src
+
+This algorithm resolves the two challenges from before:
+1. It is a reasonable assumption that the number of entries in a directory has a low variant.
+2. This algorithm can run on any number of threads, which each thread running the ~while~ loop.
+
+We need to address some additional challenges:
+- From the algorithm, it is not clear when all the subtasks of a directory is complete.
+- The disk usage of inodes need to be propagated back to ancestors.
+
+* Multi-threaded Scanner
+
+* Alternative Design
 
