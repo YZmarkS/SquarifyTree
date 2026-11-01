@@ -1,4 +1,4 @@
-#+TITLE: Multithreaded Scan
+#+TITLE: Multi-threaded Directory Explorer
 
 Here are some initial thoughts on how to design a multithreaded directory explorer.
 
@@ -6,7 +6,7 @@ Here are some initial thoughts on how to design a multithreaded directory explor
 
 In this section, we build up the understanding needed to design a multi-threaded directory scanner. We will review a reasonable single-threaded scanner, identify why it cannot be directly translated into a multi-threaded setting, then develop a multi-threaded algorithm using the lessons learned.
 
-** Single-threaded DFS Scanner
+** Single-threaded DFS Explorer
 
 Consider the following DFS implementation of directory scanning:
 #+begin_src python
@@ -51,7 +51,7 @@ This example demonstrates two challenges:
 1. The task is too coarse grained, and we cannot know the task size until a directory is completely explored. This may lead to poor load balancing between threads.
 2. Parallelizing at each directory level leads to unbounded thread count. It is likely we will pay more in overhead than actual computation.
 
-** Single-threaded BFS Scanner
+** Single-threaded BFS Directory Explorer
 
 Consider the following single-threaded BFS scanner:
 #+begin_src python
@@ -71,15 +71,160 @@ Consider the following single-threaded BFS scanner:
       return # root inode
 #+end_src
 
+The key change in BFS is that the algorithm only scans at depth one. Deeper depth are pushed into the dequeue as jobs in for the future. 
+
 This algorithm resolves the two challenges from before:
-1. It is a reasonable assumption that the number of entries in a directory has a low variant.
-2. This algorithm can run on any number of threads, which each thread running the ~while~ loop.
+1. It is a reasonable assumption that the number of entries in a directory has a low variant, meaning load is likely to be balanced.
+2. This algorithm can run on any number of threads, with each thread running the ~while~ loop. We can fixed the number of the threads if we are bounded by the hardware, or spawn additional workers if desired.
 
 We need to address some additional challenges:
 - From the algorithm, it is not clear when all the subtasks of a directory is complete.
 - The disk usage of inodes need to be propagated back to ancestors.
+Both needs to be addressed during postprocessing. 
 
-* Multi-threaded Scanner
+* Multi-threaded Directory Explorer
 
-* Alternative Design
+** Specification
 
+Precondition:
+#+begin_quote
+The input is a path that is a directory. We refer to this as the ~base~.
+#+end_quote
+
+Postcondition:
+#+begin_quote
+The output is a logical inode object representing the file structure starting at the ~base~
+Each logical inode should contain information about the path, total disk usage, and children of the inode it represents.
+#+end_quote
+
+** High-level Overview
+
+We borrow the [[https://go-patterns.dev/parallel-computing/worker-pool][worker pool pattern]] [fn:1] from Go, and transform the BFS algorithm into a multi-threaded algorithm:
+- ~job_queue~ becomes shared across threads.
+- Spawn \(n\) worker threads, each performs the ~while job_queue~ loop.
+- Spawn \(1\) collector thread, which performs the postprocessing.
+
+** Collector Thread (Collector)
+
+The scan of a directory is /complete/ if it has no subdirectory, or every subdirectory is also complete with the information propagated back. 
+
+Collector has two jobs:
+1. Propagate the disk usage of a compelete directory back to ancestors.
+2. Identify when the ~base~ directory is complete.
+
+To accomplish 1., we need to know additional information about each directory:
+1a. How many subdirectory is a scanned directory pending on. When a directory is pending on 0 subdirectory, it is complete.
+1b. The parent directory a complete subdirectory needs to propagate information toward.
+
+To accomplish 2, notice by using 1a., when the ~base~ is pending on 0 subdirectories, the entire scan is complete.
+
+Additionally, we want to delay propagation. Consider the following file structure:
+#+begin_src
+  /
+  └── A
+      └── AA
+          ├── AAA
+          │   ├── ...          
+          │   └── ...
+          ├── AAB
+          │   ├── ...          
+          │   └── ...
+          ├── ...          
+          └── AAZ
+              ├── ...          
+              └── ...
+#+end_src
+It would be very inefficient to propagate disk usage of ~AA[X]~ to ~AA~ and ~A~ individually. Instead, we should withhold disk usage of ~AA[X]~ in ~AA~ until ~AA~ is complete, then propagate back to ~A~ through ~AA~. This reduce the number of propagation from \(26 \times 2 = 52\) down to \(26 + 1 = 27\).
+
+We arrive at the following design:
+#+begin_src rust
+  fn collector() {
+      let parent_by_child = init_hashmap();
+      let pending_by_inode = init_hashmap();
+
+      loop {
+          /* Worker scanned a directory
+
+  	Extraction detail is omitted, it is heavily influenced by the method
+  	of storing 
+  	,*/
+          let signal = channel.receive();
+  	let (maybe_parent_inode, curr_inode, pending) = extract_info(signal)
+
+  	// Track pending and parent for future propagation
+  	parent_by_child[curr_directory] = maybe_parent_inode;
+  	pending_by_inode[curr_directory] = pending;
+
+          let mut propagate = (pending == 0);
+          let mut usage_to_add = curr_directory.usage;
+
+  	// If current directory is completed and is not the base
+          while propagate && curr_directory is base {
+
+  	    // Propagate information up one level
+              parent_inode.usage += usage_to_add;
+              pending_by_inode[parent_inode] -= 1;
+
+  	    // If the parent is now complete, it will propagate further
+              propagate = (pending_by_inode[parent_inode] == 0);
+  	    curr_inode = parent_inode;
+              parent_inode = parent_by_child[curr_inode];
+          }
+
+  	/* If the current directory is still completed,
+  	It must mean the current directory is the base
+  	The whole scan is complete.
+  	,*/
+  	if propagate {
+  	    break;
+  	}
+      }
+
+      signal completion
+  }
+#+end_src
+
+** Worker Threads (Scanners)
+
+The worker threads (also referred to as /scanners/) is to take a job out of the queue, scan the enntries of the directory it represents, report the result to the collector, and insert the subdirectories as jobs to the back of the queue.
+
+
+Below is a rough sketch of the design:
+#+begin_src rust
+  fn scanner() {
+      loop {
+  	// 1. Job design
+  	let job = job_queue.pop_front();
+  	let directory_inode, directory_path = extract_info(job);
+
+  	let subdirectories = vec![];
+  	for entry in read_dir(directory_path) {
+  	    let new_inode = inode_from_path(entry.path);
+  	    directory_inode.children.push(new_inode);
+  	    if new_inode is directory {
+  		subdirectories.push(new_inode)
+  	    }
+  	}
+
+  	// 2. Sending signal to collector
+  	channel.send(make_signal(directory_inode, subdirectories.len()));
+
+  	// 3. Adding new jobs
+  	for subdirectory in subdirectories {
+  	    job_queue.push_back(make_job(subdirectory))
+  	}
+      }
+  }
+#+end_src
+
+Some key ideas from the design:
+- Most importantly, because the collector needs to propagate size information, the logical inodes must be shared across threads.
+  - One choice is to have a shared vector storing the logical inodes.
+  - One choice is to create a logical inode in the scanner, and sending it to collector through channel.
+  - One choice is to send information needed to create a logical inode to the collector.
+  - Each has their own complication.
+- Jobs representing the subdirectories must be inserted *after* the collector has received information about the current directory. Otherwise, a subdirectory may become complete before the collector has collected the current directory, making propagation impossible
+
+* Footnotes
+
+[fn:1] Go Patterns, [[https://go-patterns.dev/parallel-computing/worker-pool][Worker Pool]]
