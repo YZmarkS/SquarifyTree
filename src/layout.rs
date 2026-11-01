@@ -1,4 +1,4 @@
-use ratatui::{layout::*, prelude::*};
+use ratatui::{layout::*};
 use std::{cell::RefCell, cmp, collections::HashMap, rc::Rc};
 
 use crate::inode::*;
@@ -101,7 +101,7 @@ pub enum CellContent {
 
 pub struct OtherCellContent {
     pub starting_index: usize,
-    pub usage: DiskUsage,
+    pub usage: SizeUnit,
 }
 
 pub type CellId = usize;

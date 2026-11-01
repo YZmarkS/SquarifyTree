@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 use std::env;
-use std::path::PathBuf;
+use std::fs::symlink_metadata;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
 use std::{io, path::Path};
 
 mod inode;
@@ -13,8 +12,7 @@ mod render;
 mod scanner;
 mod squarify;
 use inode::*;
-use main_loop::*;
-use scanner::*;
+use logic::*;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -28,7 +26,7 @@ fn main() -> io::Result<()> {
 
     let root_inode: Rc<RefCell<Inode>> = Rc::new(RefCell::new(Inode {
         path: path.clone(),
-        usage: 0,
+        usage: symlink_metadata(&path).unwrap().len() as SizeUnit,
         detail: InodeDetail::Dir(Vec::new()),
     }));
 

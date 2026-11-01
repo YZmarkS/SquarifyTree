@@ -1,9 +1,60 @@
+use crate::{inode::*, layout::*, scanner::*, squarify::*};
 use crossterm::event::Event;
+use ratatui::prelude::Rect;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{cell::RefCell, sync::*, thread};
 
-use crate::{inode::*, layout::*, main_loop::*, scanner::*, squarify::*};
+type CellIndex = usize;
+
+#[derive(Clone)]
+pub struct HistoryEntry {
+    pub directory: Rc<RefCell<Inode>>,
+    pub starting_index: usize,
+    pub selected: CellIndex,
+}
+
+pub struct ScanningContext {
+    pub base_inode_collected: Arc<RwLock<Option<Arc<Mutex<ScannerInode>>>>>,
+    pub scanning_thread_handle: JoinHandle<()>,
+}
+
+pub struct DisplayingContext {
+    pub info_bar: Rect,
+    pub cells: Vec<Cell>,
+    pub neighbours: Vec<Neighbours>,
+    pub help_bar: Rect,
+}
+
+pub struct NewLayoutContext {
+    pub info_bar: Rect,
+    pub canvas: Rect,
+    pub help_bar: Rect,
+}
+
+pub enum Status {
+    Exit,
+    Swapping,
+    StartScanning,
+    Scanning(ScanningContext),
+    ResetDirectoryHistory,
+    GetCanvasSize,
+    CalcNewLayout(NewLayoutContext),
+    Displaying(DisplayingContext),
+}
+
+pub struct State {
+    pub status: Status,
+    pub root_path: PathBuf,
+    pub worker_pool_size: usize,
+
+    pub root_inode: Rc<RefCell<Inode>>,
+
+    pub history: Vec<HistoryEntry>,
+    pub now: HistoryEntry,
+}
 
 impl State {
     pub fn delta(&mut self, status: Status) -> Status {
@@ -43,7 +94,7 @@ impl State {
                 scanning_thread_handle,
             }) => {
                 let maybe_base_inode_collected = base_inode_collected.read().unwrap().to_owned();
-		use crossterm::event::KeyCode;
+                use crossterm::event::KeyCode;
                 let new_state = match maybe_base_inode_collected {
                     None => {
                         if let Ok(true) = crossterm::event::poll(Duration::from_millis(20)) {
@@ -114,7 +165,11 @@ impl State {
                 panic!("GetCanvasSize: Status should not be possible after draw");
             }
 
-            CalcNewLayout(canvas) => {
+            CalcNewLayout(NewLayoutContext {
+                info_bar,
+                canvas,
+                help_bar,
+            }) => {
                 let InodeDetail::Dir(children) = &(self.now.directory.borrow().detail) else {
                     panic!("CalcNewLayout: Current inode is not a directory");
                 };
@@ -129,7 +184,12 @@ impl State {
                 let cells = make_cell_list(&rects, children, self.now.starting_index);
                 let neighbours = make_neighbours(&cells);
 
-                Displaying(DisplayingContext { cells, neighbours })
+                Displaying(DisplayingContext {
+                    info_bar,
+                    cells,
+                    neighbours,
+                    help_bar,
+                })
             }
 
             /* Displaying and Waiting for User Input
@@ -139,7 +199,12 @@ impl State {
 
             The code is ugly but necessary.
              */
-            Displaying(DisplayingContext { cells, neighbours }) => {
+            Displaying(DisplayingContext {
+                info_bar,
+                cells,
+                neighbours,
+                help_bar,
+            }) => {
                 let event = crossterm::event::read().unwrap();
                 match event {
                     Event::Resize(_, _) => GetCanvasSize,
@@ -148,19 +213,39 @@ impl State {
                         match &key_event.code {
                             KeyCode::Up => {
                                 self.up(&neighbours);
-                                Displaying(DisplayingContext { cells, neighbours })
+                                Displaying(DisplayingContext {
+                                    info_bar,
+                                    cells,
+                                    neighbours,
+                                    help_bar,
+                                })
                             }
                             KeyCode::Down => {
                                 self.down(&neighbours);
-                                Displaying(DisplayingContext { cells, neighbours })
+                                Displaying(DisplayingContext {
+                                    info_bar,
+                                    cells,
+                                    neighbours,
+                                    help_bar,
+                                })
                             }
                             KeyCode::Left => {
                                 self.left(&neighbours);
-                                Displaying(DisplayingContext { cells, neighbours })
+                                Displaying(DisplayingContext {
+                                    info_bar,
+                                    cells,
+                                    neighbours,
+                                    help_bar,
+                                })
                             }
                             KeyCode::Right => {
                                 self.right(&neighbours);
-                                Displaying(DisplayingContext { cells, neighbours })
+                                Displaying(DisplayingContext {
+                                    info_bar,
+                                    cells,
+                                    neighbours,
+                                    help_bar,
+                                })
                             }
                             KeyCode::Backspace => {
                                 self.go_out();
@@ -172,10 +257,20 @@ impl State {
                             }
                             KeyCode::Char('r') => StartScanning,
                             KeyCode::Char('q') => Exit,
-                            _ => Displaying(DisplayingContext { cells, neighbours }),
+                            _ => Displaying(DisplayingContext {
+                                info_bar,
+                                cells,
+                                neighbours,
+                                help_bar,
+                            }),
                         }
                     }
-                    _ => Displaying(DisplayingContext { cells, neighbours }),
+                    _ => Displaying(DisplayingContext {
+                        info_bar,
+                        cells,
+                        neighbours,
+                        help_bar,
+                    }),
                 }
             }
 

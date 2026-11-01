@@ -2,14 +2,12 @@ use std::{rc::Rc};
 use std::cell::RefCell;
 use std::path::{PathBuf};
 
-pub type DiskUsage = u128;
-
-
+pub type SizeUnit = u128;
 
 #[derive(Debug)]
 pub struct Inode {
     pub path: PathBuf,
-    pub usage: DiskUsage,
+    pub usage: SizeUnit,
     pub detail: InodeDetail,
 }
 
@@ -18,10 +16,6 @@ pub enum InodeDetail {
     Reg,
     Sym,
     Dir(Vec<Rc<RefCell<Inode>>>),
-}
-
-impl Inode {
-
 }
 
 #[allow(unused)]
@@ -38,8 +32,6 @@ pub fn print_inodes(inode: &Rc<RefCell<Inode>>, indent: u8) -> () {
 	}
     }
 }
-
-
 
 impl Inode {
     pub fn is_reg(&self) -> bool {

@@ -1,33 +1,30 @@
-use std::path::PathBuf;
-
 use ratatui::{
     layout::{Constraint, Layout, Spacing},
     prelude::*,
     symbols::merge::MergeStrategy,
-    text::*,
-    widgets::{Block, Borders, Paragraph},
-    DefaultTerminal, Frame,
+    widgets::{Block, Paragraph},
 };
 
+use crate::logic::*;
 use crate::{inode::*, layout::*};
-use crate::{main_loop::*, squarify::CELL_MIN_WIDTH};
 
 // https://en.wikipedia.org/wiki/Kilobyte
 const SI_STEP_SIZE: u128 = 1000;
 const IEC_STEP_SIZE: u128 = 1024;
 
 impl State {
-    pub fn main_render(&mut self, area: Rect, buf: &mut Buffer, cells: &Vec<Cell>) {
-        let [top, _, bottom] = Layout::vertical(vec![
-            Constraint::Length(3),
-            Constraint::Fill(1),
-            Constraint::Length(3),
-        ])
-        .areas(area);
+    pub fn render_display(
+        &mut self,
+        info_bar: Rect,
+        cells: &Vec<Cell>,
+        help_bar: Rect,
+        buf: &mut Buffer,
+    ) {
+
         let [directory_block, file_name_block, file_info_block] =
             Layout::horizontal(vec![Constraint::Fill(1); 3])
                 .spacing(Spacing::Overlap(1))
-                .areas(top);
+                .areas(info_bar);
 
         self.render_info_bar(
             directory_block,
@@ -39,7 +36,7 @@ impl State {
 
         self.render_cells(cells, buf);
 
-        self.render_help_bar(bottom, buf);
+        self.render_help_bar(help_bar, buf);
     }
 
     fn render_info_bar(
@@ -79,7 +76,7 @@ impl State {
 
             let mut lines = Vec::new();
 
-            lines.push(Line::from(cell.cell_base_name()));
+            lines.push(Line::from(cell.cell_display_name()));
             if let Some(usage_string) = cell.content.cell_usage_string() {
                 lines.push(Line::from(usage_string));
             }
@@ -104,7 +101,7 @@ impl State {
     }
 }
 
-fn human_readable_usage(usage: DiskUsage) -> String {
+fn human_readable_usage(usage: SizeUnit) -> String {
     let mut unit_size = 1;
     while usage / (unit_size * IEC_STEP_SIZE) != 0 {
         unit_size *= IEC_STEP_SIZE;
@@ -134,7 +131,7 @@ fn human_readable_usage(usage: DiskUsage) -> String {
     } else if unit_size == IEC_STEP_SIZE.pow(10) {
         String::from("QiB")
     } else {
-        String::from("???iB")
+        String::from("???")
     };
 
     format!("{value} {unit}")
@@ -161,7 +158,7 @@ impl CellContent {
 }
 
 impl Cell {
-    pub fn cell_base_name(&self) -> String {
+    pub fn cell_display_name(&self) -> String {
         let internal_width: usize = (self.rect.width - 2) as usize;
         match &self.content {
             CellContent::Inode(inode) => {
@@ -180,7 +177,7 @@ impl Cell {
                         {
                             if let Some(extension) = extension {
                                 let stem = base_name_pathbuf.file_stem().unwrap().to_str().unwrap();
-				let room = internal_width - ("[..]".len() + 1 + extension.len());
+                                let room = internal_width - ("[..]".len() + 1 + extension.len());
                                 let back_len = room / 2;
                                 let front_len = room - back_len;
                                 format!(
@@ -196,7 +193,7 @@ impl Cell {
                                 )
                             }
                         } else {
-			    let room = internal_width - "[..]".len();
+                            let room = internal_width - "[..]".len();
                             let back_len = room / 2;
                             let front_len = room - back_len;
                             format!(

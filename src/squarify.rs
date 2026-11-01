@@ -24,7 +24,7 @@ pub fn is_landscape(width: Measure, height: Measure) -> bool {
 }
 
 fn calc_stack_spans(inodes: &[Rc<RefCell<Inode>>], total_span: Measure) -> Vec<Measure> {
-    let total_usage: DiskUsage = inodes.iter().map(|inode| inode.borrow().usage).sum();
+    let total_usage: SizeUnit = inodes.iter().map(|inode| inode.borrow().usage).sum();
 
     // What happens when all the inodes have 0 usage.
     // TODO: You gotta fix this at some point man, please, this is so ugly
@@ -119,14 +119,14 @@ pub struct StackInfo {
 
 fn calc_stack_info(
     inodes: &[Rc<RefCell<Inode>>],
-    total_usage: DiskUsage,
+    total_usage: SizeUnit,
     total_breadth: Measure,
     total_span: Measure,
     direction: &StackDirection,
 ) -> StackInfo {
     assert_ne!(inodes.len(), 0);
 
-    let subtotal_usage: DiskUsage = inodes.iter().map(|inode| inode.borrow().usage).sum();
+    let subtotal_usage: SizeUnit = inodes.iter().map(|inode| inode.borrow().usage).sum();
 
     let precise_stack_breadth =
         (total_breadth as f64) * (subtotal_usage as f64) / (total_usage as f64);
@@ -169,7 +169,7 @@ pub fn squarify(inodes: &[Rc<RefCell<Inode>>], width: Measure, height: Measure) 
     let total_span = if is_landscape { height } else { width };
     let direction = if is_landscape { Vertical } else { Horizontal };
 
-    let total_usage: DiskUsage = inodes.iter().map(|inode| inode.borrow().usage).sum();
+    let total_usage: SizeUnit = inodes.iter().map(|inode| inode.borrow().usage).sum();
 
     let mut take = 1;
     let mut stack_info = calc_stack_info(

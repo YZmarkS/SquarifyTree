@@ -1,9 +1,10 @@
+use crate::inode::*;
+
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::fs::*;
 use std::path::PathBuf;
 use std::rc::Rc;
-
 use std::sync::RwLock;
 use std::sync::{
     mpsc,
@@ -11,8 +12,6 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread;
-
-use crate::inode::*;
 
 type InodeIndex = usize;
 type Pending = usize;
@@ -25,7 +24,7 @@ pub struct ScanJob {
 #[derive(Debug, Clone)]
 pub struct ScannerInode {
     path: PathBuf,
-    usage: DiskUsage,
+    usage: SizeUnit,
     detail: ScannerInodeDetail,
 }
 
