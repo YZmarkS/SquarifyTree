@@ -20,52 +20,24 @@ fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let path = Path::new(args.get(1).unwrap()).canonicalize().unwrap();
 
-    // let env_path = std::env::var("SCAN_ROOT").unwrap();
-    // let path = PathBuf::from(env_path);
-
-
     let worker_pool_size = 10;
+    let base_inode_collected = Arc::new(RwLock::new(None));
 
-    let root_inode: Rc<RefCell<Inode>> = Rc::new(RefCell::new(Inode {
-        path: path.clone(),
-        usage: 0,
-        detail: InodeDetail::Dir(Vec::new()),
-    }));
+    scan_base_path(worker_pool_size, path, Arc::clone(&base_inode_collected));
 
-    // let base_inode_collected = Arc::new(RwLock::new(None));
-    // let base_collected_clone = base_inode_collected.clone();
-    // scan_base_path(10, path, base_collected_clone);
+    loop {
+	if base_inode_collected.read().unwrap().is_none() {
+	    continue;
+	}
+	break;
+    }
 
-    // loop {
-    //     if base_inode_collected.read().unwrap().is_none() {
-    //         continue;
-    //     }
-    //     break;
-    // }
-
-    // let maybe_base_inode_collected = base_inode_collected.read().unwrap().to_owned();
-    // match maybe_base_inode_collected {
-    //     None => panic!("impossible"),
-    //     Some(base_inode) => {
-    //         Rc::new(RefCell::new(Inode::try_from(base_inode).unwrap()));
-    //     }
-    // };
-
-    let mut state = State {
-        status: Status::StartScanning,
-        root_path: path.clone(),
-        worker_pool_size,
-
-        root_inode: root_inode.clone(),
-        history: Vec::new(),
-        now: HistoryEntry {
-            directory: root_inode.clone(),
-            starting_index: 100000,
-            selected: 0,
-        },
+    let _ = match base_inode_collected.read().unwrap().to_owned() {
+	None => panic!("impossible"),
+	Some(base_inode) => {
+	    Inode::try_from(base_inode)
+	},
     };
-
-    ratatui::run(|terminal| state.main_loop(terminal)).unwrap();
 
     Ok(())
 }
