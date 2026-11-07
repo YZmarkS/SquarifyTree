@@ -1,5 +1,5 @@
 use crate::{inode::*, layout::*, scanner::*, squarify::*};
-use crossterm::event::Event;
+use crossterm::event::{KeyCode, Event, KeyEvent};
 use ratatui::prelude::Rect;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -14,11 +14,6 @@ pub struct HistoryEntry {
     pub directory: Rc<RefCell<Inode>>,
     pub starting_index: usize,
     pub selected: CellIndex,
-}
-
-pub struct ScanningContext {
-    pub base_inode_collected: Arc<RwLock<Option<Arc<Mutex<ScannerInode>>>>>,
-    pub scanning_thread_handle: JoinHandle<()>,
 }
 
 pub struct DisplayingContext {
@@ -38,11 +33,21 @@ pub enum Status {
     Exit,
     Swapping,
     StartScanning,
-    Scanning(ScanningContext),
-    ResetDirectoryHistory,
+    Scanning {
+        base_inode_collected: Arc<RwLock<Option<Arc<Mutex<ScannerInode>>>>>,
+        scanning_thread_handle: JoinHandle<()>,
+    },
+    ReturnToHeadOfCurrentDirectory,
     GetCanvasSize,
     CalcNewLayout(NewLayoutContext),
     Displaying(DisplayingContext),
+    ConfirmDeleteSelected,
+    DeleteSelected,
+    DeletingSelected {
+	deleted: Arc<RwLock<bool>>
+    },
+    DeletionFailed,
+    DeletionCleanup,
 }
 
 pub struct State {
@@ -84,39 +89,38 @@ impl State {
                     scan_base_path(worker_pool_size, base_path, base_inode_collected_clone);
                 });
 
-                Scanning(ScanningContext {
+                Scanning {
                     base_inode_collected,
                     scanning_thread_handle,
-                })
+                }
             }
-            Scanning(ScanningContext {
+            Scanning {
                 base_inode_collected,
                 scanning_thread_handle,
-            }) => {
+            } => {
                 let maybe_base_inode_collected = base_inode_collected.read().unwrap().to_owned();
-                use crossterm::event::KeyCode;
                 let new_state = match maybe_base_inode_collected {
                     None => {
                         if let Ok(true) = crossterm::event::poll(Duration::from_millis(20)) {
                             let event = crossterm::event::read().unwrap();
-                            match event {
-                                Event::Key(key_event) => match key_event.code {
-                                    KeyCode::Char('q') => Exit,
-                                    _ => Scanning(ScanningContext {
-                                        base_inode_collected,
-                                        scanning_thread_handle,
-                                    }),
-                                },
-                                _ => Scanning(ScanningContext {
+
+                            if let Event::Key(KeyEvent {
+                                code: KeyCode::Char('q'),
+                                ..
+                            }) = event
+                            {
+                                Exit
+                            } else {
+                                Scanning {
                                     base_inode_collected,
                                     scanning_thread_handle,
-                                }),
+                                }
                             }
                         } else {
-                            Scanning(ScanningContext {
+                            Scanning {
                                 base_inode_collected,
                                 scanning_thread_handle,
-                            })
+                            }
                         }
                     }
                     Some(base_inode) => {
@@ -126,7 +130,7 @@ impl State {
                             Rc::new(RefCell::new(Inode::try_from(base_inode).unwrap()));
                         self.now.directory.swap(&new_base_inode);
 
-                        ResetDirectoryHistory
+                        ReturnToHeadOfCurrentDirectory
                     }
                 };
                 new_state
@@ -141,7 +145,7 @@ impl State {
             element becomes unavailable. Thus, it is crucial to recover from an
             inconsistent state after (re)scanning or file deletion.
                  */
-            ResetDirectoryHistory => {
+            ReturnToHeadOfCurrentDirectory => {
                 let curr_directory = self.now.directory.clone();
                 while self.history.last().is_some_and(|entry| {
                     entry.directory.borrow().path == curr_directory.borrow().path
@@ -192,6 +196,27 @@ impl State {
                 })
             }
 
+            /* Delete Selected */
+            ConfirmDeleteSelected => {
+		todo!()
+            },
+            DeleteSelected => {
+                todo!()
+            },
+            DeletingSelected { deleted } => {
+		if *(deleted.read().unwrap()) {
+		    DeletionCleanup
+		} else {
+		    DeletingSelected { deleted }
+		}
+            },
+            DeletionFailed => {
+                todo!()
+            },
+	    DeletionCleanup => {
+		todo!()
+	    },
+
             /* Displaying and Waiting for User Input
 
             If there are no computation to be done, then the application is
@@ -208,63 +233,61 @@ impl State {
                 let event = crossterm::event::read().unwrap();
                 match event {
                     Event::Resize(_, _) => GetCanvasSize,
-                    Event::Key(key_event) => {
-                        use crossterm::event::KeyCode;
-                        match &key_event.code {
-                            KeyCode::Up => {
-                                self.up(&neighbours);
-                                Displaying(DisplayingContext {
-                                    info_bar,
-                                    cells,
-                                    neighbours,
-                                    help_bar,
-                                })
-                            }
-                            KeyCode::Down => {
-                                self.down(&neighbours);
-                                Displaying(DisplayingContext {
-                                    info_bar,
-                                    cells,
-                                    neighbours,
-                                    help_bar,
-                                })
-                            }
-                            KeyCode::Left => {
-                                self.left(&neighbours);
-                                Displaying(DisplayingContext {
-                                    info_bar,
-                                    cells,
-                                    neighbours,
-                                    help_bar,
-                                })
-                            }
-                            KeyCode::Right => {
-                                self.right(&neighbours);
-                                Displaying(DisplayingContext {
-                                    info_bar,
-                                    cells,
-                                    neighbours,
-                                    help_bar,
-                                })
-                            }
-                            KeyCode::Backspace => {
-                                self.go_out();
-                                GetCanvasSize
-                            }
-                            KeyCode::Enter => {
-                                self.go_in(&cells);
-                                GetCanvasSize
-                            }
-                            KeyCode::Char('r') => StartScanning,
-                            KeyCode::Char('q') => Exit,
-                            _ => Displaying(DisplayingContext {
+                    Event::Key(key_event) => match &key_event.code {
+                        KeyCode::Up => {
+                            self.up(&neighbours);
+                            Displaying(DisplayingContext {
                                 info_bar,
                                 cells,
                                 neighbours,
                                 help_bar,
-                            }),
+                            })
                         }
-                    }
+                        KeyCode::Down => {
+                            self.down(&neighbours);
+                            Displaying(DisplayingContext {
+                                info_bar,
+                                cells,
+                                neighbours,
+                                help_bar,
+                            })
+                        }
+                        KeyCode::Left => {
+                            self.left(&neighbours);
+                            Displaying(DisplayingContext {
+                                info_bar,
+                                cells,
+                                neighbours,
+                                help_bar,
+                            })
+                        }
+                        KeyCode::Right => {
+                            self.right(&neighbours);
+                            Displaying(DisplayingContext {
+                                info_bar,
+                                cells,
+                                neighbours,
+                                help_bar,
+                            })
+                        }
+                        KeyCode::Backspace => {
+                            self.go_out();
+                            GetCanvasSize
+                        }
+                        KeyCode::Enter => {
+                            self.go_in(&cells);
+                            GetCanvasSize
+                        }
+                        KeyCode::Char('r') => StartScanning,
+                        // KeyCode::Char('d') => ConfirmDeleteSelected,
+                        KeyCode::Char('q') => Exit,
+                        _ => Displaying(DisplayingContext {
+                            info_bar,
+                            cells,
+                            neighbours,
+                            help_bar,
+                        }),
+                    },
                     _ => Displaying(DisplayingContext {
                         info_bar,
                         cells,
