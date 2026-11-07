@@ -7,7 +7,7 @@
 - [X] Open parent directory
 - [X] Sort by size
 - [ ] Delete selection
-- [ ] Recalculate
+- [X] Recalculate
 
 * Future
 - [ ] Apparent Size / Disk Usage

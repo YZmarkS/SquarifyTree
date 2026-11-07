@@ -220,9 +220,9 @@ fn collector(
         let directory_inodes = directory_inodes.lock().unwrap();
 
         let mut usage_to_add = {
-	    let directory_inode = directory_inodes.get(directory_id).unwrap().clone();
-	    directory_inode.lock().unwrap().usage
-	};
+            let directory_inode = directory_inodes.get(directory_id).unwrap().clone();
+            directory_inode.lock().unwrap().usage
+        };
 
         while propagate {
             if let Some(parent_id) = maybe_parent_id {
