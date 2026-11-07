@@ -270,6 +270,10 @@ impl State {
                                 help_bar,
                             })
                         }
+			KeyCode::Esc => {
+			    self.go_out();
+                            GetCanvasSize
+			}
                         KeyCode::Backspace => {
                             self.go_out();
                             GetCanvasSize
