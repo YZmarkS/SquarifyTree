@@ -11,7 +11,7 @@ pub enum StackDirection {
     Horizontal,
 }
 
-const HEIGHT_TO_WIDTH_RATIO: Measure = 2;
+pub const HEIGHT_TO_WIDTH_RATIO: Measure = 2;
 
 pub const CELL_MIN_WIDTH: Measure = 8;
 pub const CELL_MIN_HEIGHT: Measure = 3;

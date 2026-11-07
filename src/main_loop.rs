@@ -1,4 +1,5 @@
-use crate::{logic::*};
+use crate::logic::*;
+use crate::squarify::HEIGHT_TO_WIDTH_RATIO;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Flex, Layout};
 use ratatui::widgets::{Block, Paragraph, Widget};
@@ -54,15 +55,29 @@ impl Widget for &mut State {
                     help_bar,
                 })
             }
-            Scanning(scanning_context) => {
+            scanning_state @ Scanning { .. } => {
                 Block::bordered().render(area, buf);
 
-                let [mid_col] = Layout::new(Direction::Horizontal, vec![Constraint::Max(50)])
-                    .flex(Flex::Center)
-                    .areas(area);
-                let [mid_box] = Layout::new(Direction::Vertical, vec![Constraint::Max(9)])
-                    .flex(Flex::Center)
-                    .areas(mid_col);
+                let [_, mid_col, _] = Layout::new(
+                    Direction::Horizontal,
+                    vec![
+                        Constraint::Length(2 * HEIGHT_TO_WIDTH_RATIO),
+                        Constraint::Max(50),
+                        Constraint::Length(2 * HEIGHT_TO_WIDTH_RATIO),
+                    ],
+                )
+                .flex(Flex::Center)
+                .areas(area);
+                let [_, mid_box, _] = Layout::new(
+                    Direction::Vertical,
+                    vec![
+                        Constraint::Length(2),
+                        Constraint::Max(9),
+                        Constraint::Length(2),
+                    ],
+                )
+                .flex(Flex::Center)
+                .areas(mid_col);
                 let mid_text_area = mid_box.centered(Constraint::Max(12), Constraint::Max(1));
 
                 let dots = SystemTime::now()
@@ -76,7 +91,7 @@ impl Widget for &mut State {
                 Block::bordered().render(mid_box, buf);
                 Paragraph::new(scanning_string).render(mid_text_area, buf);
 
-                Scanning(scanning_context)
+                scanning_state
             }
             Displaying(DisplayingContext {
                 info_bar,
