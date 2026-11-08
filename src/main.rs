@@ -38,6 +38,8 @@ fn main() -> io::Result<()> {
             starting_index: 0,
             selected: 0,
         },
+
+	draw_areas: None,
     };
 
     ratatui::run(|terminal| state.main_loop(terminal)).unwrap();

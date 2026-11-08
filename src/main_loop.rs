@@ -1,7 +1,8 @@
 use crate::logic::*;
+use crate::render::area_to_draw_areas;
 use crate::squarify::HEIGHT_TO_WIDTH_RATIO;
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Direction, Flex, Layout};
+use ratatui::layout::{Constraint, Direction, Flex, Layout, Spacing};
 use ratatui::widgets::{Block, Paragraph, Widget};
 use ratatui::{prelude::Rect, DefaultTerminal};
 use std::mem::replace;
@@ -38,37 +39,44 @@ impl Widget for &mut State {
     fn render(self, area: Rect, buf: &mut Buffer) {
         use Status::*;
 
+	self.draw_areas = Some(area_to_draw_areas(area));
+
         let old_status = replace(&mut self.status, Swapping);
 
         let new_status: Status = match old_status {
-            GetCanvasSize => {
-                let [info_bar, canvas, help_bar] = Layout::vertical(vec![
+	    /* Get Draw Areas
+
+	    Used to calculate the draw areas.
+
+	    Interleaved with [delta] to get the most up-to-date draw areas.
+	    Common reasons of trigger are:
+	    - Window resize.
+	    - Enter different directory.
+	     */
+            GetDrawAreas => {
+                let [info_rect, canvas, help_rect] = Layout::vertical(vec![
                     Constraint::Length(3),
                     Constraint::Fill(1),
                     Constraint::Length(3),
                 ])
                 .areas(area);
 
-                CalcNewLayout(NewLayoutContext {
-                    info_bar,
-                    canvas,
-                    help_bar,
-                })
-            }
-            scanning_state @ Scanning { .. } => {
-                Block::bordered().render(area, buf);
+                let [directory_path_rect, entry_name_rect, entry_info_rect] =
+                    Layout::horizontal(vec![Constraint::Fill(1); 3])
+                        .spacing(Spacing::Overlap(1))
+                        .areas(info_rect);
 
                 let [_, mid_col, _] = Layout::new(
                     Direction::Horizontal,
                     vec![
                         Constraint::Length(2 * HEIGHT_TO_WIDTH_RATIO),
-                        Constraint::Max(50),
+                        Constraint::Fill(1),
                         Constraint::Length(2 * HEIGHT_TO_WIDTH_RATIO),
                     ],
                 )
                 .flex(Flex::Center)
                 .areas(area);
-                let [_, mid_box, _] = Layout::new(
+                let [_, modal_rect, _] = Layout::new(
                     Direction::Vertical,
                     vec![
                         Constraint::Length(2),
@@ -78,18 +86,20 @@ impl Widget for &mut State {
                 )
                 .flex(Flex::Center)
                 .areas(mid_col);
-                let mid_text_area = mid_box.centered(Constraint::Max(12), Constraint::Max(1));
 
-                let dots = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis()
-                    / 250
-                    % 4;
-                let scanning_string = format!("Scanning{}", ".".repeat(dots as usize));
+                self.draw_areas = Some(DrawAreas {
+                    directory_path_rect,
+                    entry_name_rect,
+                    entry_info_rect,
+                    canvas,
+                    help_rect,
+                    modal_rect,
+                });
 
-                Block::bordered().render(mid_box, buf);
-                Paragraph::new(scanning_string).render(mid_text_area, buf);
+                CalcNewLayout
+            }
+            scanning_state @ Scanning { .. } => {
+		self.render_scanning_modal(buf);
 
                 scanning_state
             }

@@ -1,11 +1,12 @@
 use ratatui::{
-    layout::{Constraint, Layout, Spacing},
+    layout::{Constraint, Flex, Layout, Spacing},
     prelude::*,
     symbols::merge::MergeStrategy,
     widgets::{Block, Paragraph},
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::logic::*;
+use crate::{logic::*, squarify::HEIGHT_TO_WIDTH_RATIO};
 use crate::{inode::*, layout::*};
 
 // https://en.wikipedia.org/wiki/Kilobyte
@@ -20,7 +21,6 @@ impl State {
         help_bar: Rect,
         buf: &mut Buffer,
     ) {
-
         let [directory_block, file_name_block, file_info_block] =
             Layout::horizontal(vec![Constraint::Fill(1); 3])
                 .spacing(Spacing::Overlap(1))
@@ -99,6 +99,69 @@ impl State {
 	    .block(Block::bordered())
 	    .render(helper_bar, buf);
     }
+
+    pub fn render_scanning_modal(&self, buf: &mut Buffer) {
+        let modal_rect = if let Some(DrawAreas { modal_rect, .. }) = self.draw_areas {
+            modal_rect
+        } else {
+            panic!("Render: No modal box in state to render scanning modal")
+        };
+        let dots = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            / 250
+            % 4;
+        let scanning_string = format!("Scanning{}", ".".repeat(dots as usize));
+        let modal_text_area = modal_rect.centered(Constraint::Max(12), Constraint::Max(1));
+
+        Block::bordered().render(modal_rect, buf);
+        Paragraph::new(scanning_string).render(modal_text_area, buf);
+    }
+}
+
+pub fn area_to_draw_areas(area: Rect) -> DrawAreas {
+    let [info_rect, canvas, help_rect] = Layout::vertical(vec![
+        Constraint::Length(3),
+        Constraint::Fill(1),
+        Constraint::Length(3),
+    ])
+    .areas(area);
+
+    let [directory_path_rect, entry_name_rect, entry_info_rect] =
+        Layout::horizontal(vec![Constraint::Fill(1); 3])
+            .spacing(Spacing::Overlap(1))
+            .areas(info_rect);
+
+    let [_, mid_col, _] = Layout::new(
+        Direction::Horizontal,
+        vec![
+            Constraint::Length(2 * HEIGHT_TO_WIDTH_RATIO),
+            Constraint::Fill(1),
+            Constraint::Length(2 * HEIGHT_TO_WIDTH_RATIO),
+        ],
+    )
+    .flex(Flex::Center)
+    .areas(area);
+    let [_, modal_rect, _] = Layout::new(
+        Direction::Vertical,
+        vec![
+            Constraint::Length(2),
+            Constraint::Max(9),
+            Constraint::Length(2),
+        ],
+    )
+    .flex(Flex::Center)
+    .areas(mid_col);
+
+    DrawAreas {
+        directory_path_rect,
+        entry_name_rect,
+        entry_info_rect,
+        canvas,
+        help_rect,
+        modal_rect,
+    }
 }
 
 fn human_readable_usage(usage: SizeUnit) -> String {
@@ -165,6 +228,12 @@ impl Cell {
                 let inode = inode.borrow();
                 let base_name_pathbuf = inode.base_name_pathbuf();
                 let base_name_string: String = base_name_pathbuf.to_string_lossy().into();
+
+                /* File or Link File Name
+
+                Attempts to include the starting character and the full extension.
+                If not possible, shrink the entire file name.
+                 */
                 if inode.is_reg() || inode.is_sym() {
                     if base_name_string.len() <= internal_width as usize {
                         base_name_string
@@ -203,7 +272,12 @@ impl Cell {
                             )
                         }
                     }
-                } else if inode.is_dir() {
+                }
+                /* Directory Name
+
+                Only attempt to include at the first and last character.
+                 */
+                else if inode.is_dir() {
                     if base_name_string.len() <= (internal_width - 1) as usize {
                         base_name_pathbuf.join("").to_string_lossy().into_owned()
                     } else {
@@ -221,8 +295,8 @@ impl Cell {
                     panic!("Render - cell_base_name: Unknown inode type")
                 }
             }
-            CellContent::Other(_) => String::from("..."),
-            CellContent::Empty => String::from("Empty Directory"),
+            CellContent::Other(_) => String::from("[...]"),
+            CellContent::Empty => String::from("There's nothing more..."),
         }
     }
 }

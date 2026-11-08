@@ -1,5 +1,5 @@
 use crate::{inode::*, layout::*, scanner::*, squarify::*};
-use crossterm::event::{KeyCode, Event, KeyEvent};
+use crossterm::event::{Event, KeyCode, KeyEvent};
 use ratatui::prelude::Rect;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -8,6 +8,9 @@ use std::time::Duration;
 use std::{cell::RefCell, sync::*, thread};
 
 type CellIndex = usize;
+
+const YES: bool = true;
+const NO: bool = false;
 
 #[derive(Clone)]
 pub struct HistoryEntry {
@@ -38,16 +41,24 @@ pub enum Status {
         scanning_thread_handle: JoinHandle<()>,
     },
     ReturnToHeadOfCurrentDirectory,
-    GetCanvasSize,
-    CalcNewLayout(NewLayoutContext),
-    Displaying(DisplayingContext),
-    ConfirmDeleteSelected,
+    CalcNewLayout,
+    Displaying {cells: Vec<Cell>, neighbours: Vec<Neighbours> },
+    DeletionConfirmation(bool),
     DeleteSelected,
     DeletingSelected {
-	deleted: Arc<RwLock<bool>>
+        deleted: Arc<RwLock<bool>>,
     },
     DeletionFailed,
     DeletionCleanup,
+}
+
+pub struct DrawAreas {
+    pub directory_path_rect: Rect,
+    pub entry_name_rect: Rect,
+    pub entry_info_rect: Rect,
+    pub canvas: Rect,
+    pub help_rect: Rect,
+    pub modal_rect: Rect,
 }
 
 pub struct State {
@@ -59,6 +70,8 @@ pub struct State {
 
     pub history: Vec<HistoryEntry>,
     pub now: HistoryEntry,
+
+    pub draw_areas: Option<DrawAreas>,
 }
 
 impl State {
@@ -156,7 +169,7 @@ impl State {
                 self.now.selected = 0;
                 self.now.starting_index = 0;
 
-                GetCanvasSize
+                CalcNewLayout
             }
 
             /* Getting terminal dimension for Layout Calculation
@@ -165,18 +178,18 @@ impl State {
             While [crossterm] provides some interface for getting the terminal
             dimension, I want one source of truth, and is currently using the
              */
-            GetCanvasSize => {
+            GetDrawAreas => {
                 panic!("GetCanvasSize: Status should not be possible after draw");
             }
 
-            CalcNewLayout(NewLayoutContext {
-                info_bar,
-                canvas,
-                help_bar,
-            }) => {
+            CalcNewLayout => {
                 let InodeDetail::Dir(children) = &(self.now.directory.borrow().detail) else {
                     panic!("CalcNewLayout: Current inode is not a directory");
                 };
+
+		let Some(DrawAreas { canvas, .. }) = self.draw_areas else {
+		    panic!("CalcNewLayout: No draw areas to use");
+		};
 
                 let squarify = squarify(
                     &children[self.now.starting_index..],
@@ -188,34 +201,48 @@ impl State {
                 let cells = make_cell_list(&rects, children, self.now.starting_index);
                 let neighbours = make_neighbours(&cells);
 
-                Displaying(DisplayingContext {
-                    info_bar,
+                Displaying {
                     cells,
                     neighbours,
-                    help_bar,
-                })
+                }
             }
 
             /* Delete Selected */
-            ConfirmDeleteSelected => {
-		todo!()
-            },
+            DeletionConfirmation(is_yes) => {
+                let event = crossterm::event::read().unwrap();
+
+                match event {
+                    Event::Key(KeyEvent { code, .. }) => match code {
+                        KeyCode::Enter => {
+                            if is_yes {
+                                DeleteSelected
+                            } else {
+                                DeletionConfirmation(is_yes)
+                            }
+                        }
+                        KeyCode::Left => DeletionConfirmation(YES),
+                        KeyCode::Right => DeletionConfirmation(NO),
+                        _ => DeletionConfirmation(is_yes),
+                    },
+                    _ => DeletionConfirmation(is_yes),
+                }
+            }
             DeleteSelected => {
-                todo!()
-            },
+                let index_in_directory = self.now.starting_index + self.now.selected
+            }
             DeletingSelected { deleted } => {
-		if *(deleted.read().unwrap()) {
-		    DeletionCleanup
-		} else {
-		    DeletingSelected { deleted }
-		}
-            },
+                if *(deleted.read().unwrap()) {
+                    DeletionCleanup
+                } else {
+                    DeletingSelected { deleted }
+                }
+            }
             DeletionFailed => {
                 todo!()
-            },
-	    DeletionCleanup => {
-		todo!()
-	    },
+            }
+            DeletionCleanup => {
+                todo!()
+            }
 
             /* Displaying and Waiting for User Input
 
@@ -232,7 +259,7 @@ impl State {
             }) => {
                 let event = crossterm::event::read().unwrap();
                 match event {
-                    Event::Resize(_, _) => GetCanvasSize,
+                    Event::Resize(_, _) => GetDrawAreas,
                     Event::Key(key_event) => match &key_event.code {
                         KeyCode::Up => {
                             self.up(&neighbours);
@@ -270,20 +297,20 @@ impl State {
                                 help_bar,
                             })
                         }
-			KeyCode::Esc => {
-			    self.go_out();
-                            GetCanvasSize
-			}
+                        KeyCode::Esc => {
+                            self.go_out();
+                            GetDrawAreas
+                        }
                         KeyCode::Backspace => {
                             self.go_out();
-                            GetCanvasSize
+                            GetDrawAreas
                         }
                         KeyCode::Enter => {
                             self.go_in(&cells);
-                            GetCanvasSize
+                            GetDrawAreas
                         }
                         KeyCode::Char('r') => StartScanning,
-                        // KeyCode::Char('d') => ConfirmDeleteSelected,
+                        KeyCode::Char('d') => DeletionConfirmation(false),
                         KeyCode::Char('q') => Exit,
                         _ => Displaying(DisplayingContext {
                             info_bar,
