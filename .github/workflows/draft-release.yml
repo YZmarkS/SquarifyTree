@@ -7,10 +7,18 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        target:
+          [ x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu,
+          x86_64-pc-windows-msvc, aarch64-pc-windows-msvc,
+          aarch64-apple-darwin, x86_64-apple-darwin ]
+        
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Ensure rustup exists
-        run: rustup --help
+      - name: Rustup: Add cross-compilation target: ${{ matrix.target }}
+        run: rustup target add ${{ matrix.target }}
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: cargo: Building for target: ${{ matrix.target }}
+        run: cargo build --profile release --target=${{ matrix.target }}
