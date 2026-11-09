@@ -11,7 +11,6 @@ jobs:
           [ ubuntu-latest, ubuntu-24.04-arm,
           windows-latest, windows-11-arm,
           macos-latest, macos-15-intel ]
-        
 
     runs-on: ${{ matrix.os }}
 
@@ -20,5 +19,16 @@ jobs:
         run: rustup --version
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: "cargo: Building for target ${{ matrix.os }}"
         run: cargo build --profile release
+      - name: "Upload: Upload to release"
+        run: |
+          gh releasse upload v0.1.0 target/release/squarify_tree_rust --clobber
