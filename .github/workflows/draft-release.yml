@@ -12,4 +12,5 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - run: echo "Hello World"
+      - name: Ensure rustup exists
+        run: rustup --help
