@@ -1,5 +1,5 @@
 use crate::{inode::*, layout::*, scanner::*, squarify::*};
-use crossterm::event::{KeyCode, Event, KeyEvent};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::Rect;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -44,7 +44,7 @@ pub enum Status {
     ConfirmDeleteSelected,
     DeleteSelected,
     DeletingSelected {
-	deleted: Arc<RwLock<bool>>
+        deleted: Arc<RwLock<bool>>,
     },
     DeletionFailed,
     DeletionCleanup,
@@ -198,24 +198,24 @@ impl State {
 
             /* Delete Selected */
             ConfirmDeleteSelected => {
-		todo!()
-            },
+                todo!()
+            }
             DeleteSelected => {
                 todo!()
-            },
+            }
             DeletingSelected { deleted } => {
-		if *(deleted.read().unwrap()) {
-		    DeletionCleanup
-		} else {
-		    DeletingSelected { deleted }
-		}
-            },
+                if *(deleted.read().unwrap()) {
+                    DeletionCleanup
+                } else {
+                    DeletingSelected { deleted }
+                }
+            }
             DeletionFailed => {
                 todo!()
-            },
-	    DeletionCleanup => {
-		todo!()
-	    },
+            }
+            DeletionCleanup => {
+                todo!()
+            }
 
             /* Displaying and Waiting for User Input
 
@@ -233,65 +233,74 @@ impl State {
                 let event = crossterm::event::read().unwrap();
                 match event {
                     Event::Resize(_, _) => GetCanvasSize,
-                    Event::Key(key_event) => match &key_event.code {
-                        KeyCode::Up => {
-                            self.up(&neighbours);
-                            Displaying(DisplayingContext {
+		    /* Key Event Duplication
+
+		    Known [crossterm] issue. The default key press event is [Press].
+		    - Official documentation: https://docs.rs/crossterm/latest/crossterm/event/struct.KeyEvent.html#structfield.kind
+		    - Double key input on Windows: https://github.com/crossterm-rs/crossterm/issues/772
+		    - Proposal to make release event opt-in: https://github.com/crossterm-rs/crossterm/pull/778
+		     */
+                    Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                        match &key_event.code {
+                            KeyCode::Up => {
+                                self.up(&neighbours);
+                                Displaying(DisplayingContext {
+                                    info_bar,
+                                    cells,
+                                    neighbours,
+                                    help_bar,
+                                })
+                            }
+                            KeyCode::Down => {
+                                self.down(&neighbours);
+                                Displaying(DisplayingContext {
+                                    info_bar,
+                                    cells,
+                                    neighbours,
+                                    help_bar,
+                                })
+                            }
+                            KeyCode::Left => {
+                                self.left(&neighbours);
+                                Displaying(DisplayingContext {
+                                    info_bar,
+                                    cells,
+                                    neighbours,
+                                    help_bar,
+                                })
+                            }
+                            KeyCode::Right => {
+                                self.right(&neighbours);
+                                Displaying(DisplayingContext {
+                                    info_bar,
+                                    cells,
+                                    neighbours,
+                                    help_bar,
+                                })
+                            }
+                            KeyCode::Esc => {
+                                self.go_out();
+                                GetCanvasSize
+                            }
+                            KeyCode::Backspace => {
+                                self.go_out();
+                                GetCanvasSize
+                            }
+                            KeyCode::Enter => {
+                                self.go_in(&cells);
+                                GetCanvasSize
+                            }
+                            KeyCode::Char('r') => StartScanning,
+                            // KeyCode::Char('d') => ConfirmDeleteSelected,
+                            KeyCode::Char('q') => Exit,
+                            _ => Displaying(DisplayingContext {
                                 info_bar,
                                 cells,
                                 neighbours,
                                 help_bar,
-                            })
+                            }),
                         }
-                        KeyCode::Down => {
-                            self.down(&neighbours);
-                            Displaying(DisplayingContext {
-                                info_bar,
-                                cells,
-                                neighbours,
-                                help_bar,
-                            })
-                        }
-                        KeyCode::Left => {
-                            self.left(&neighbours);
-                            Displaying(DisplayingContext {
-                                info_bar,
-                                cells,
-                                neighbours,
-                                help_bar,
-                            })
-                        }
-                        KeyCode::Right => {
-                            self.right(&neighbours);
-                            Displaying(DisplayingContext {
-                                info_bar,
-                                cells,
-                                neighbours,
-                                help_bar,
-                            })
-                        }
-			KeyCode::Esc => {
-			    self.go_out();
-                            GetCanvasSize
-			}
-                        KeyCode::Backspace => {
-                            self.go_out();
-                            GetCanvasSize
-                        }
-                        KeyCode::Enter => {
-                            self.go_in(&cells);
-                            GetCanvasSize
-                        }
-                        KeyCode::Char('r') => StartScanning,
-                        // KeyCode::Char('d') => ConfirmDeleteSelected,
-                        KeyCode::Char('q') => Exit,
-                        _ => Displaying(DisplayingContext {
-                            info_bar,
-                            cells,
-                            neighbours,
-                            help_bar,
-                        }),
-                    },
+                    }
                     _ => Displaying(DisplayingContext {
                         info_bar,
                         cells,
