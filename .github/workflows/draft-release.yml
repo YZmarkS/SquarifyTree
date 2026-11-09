@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Rustup: Add cross-compilation target: ${{ matrix.target }}
+      - name: "Rustup: Add cross-compilation target: ${{ matrix.target }}"
         run: rustup target add ${{ matrix.target }}
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: cargo: Building for target: ${{ matrix.target }}
+      - name: "cargo: Building for target ${{ matrix.target }}"
         run: cargo build --profile release --target=${{ matrix.target }}
