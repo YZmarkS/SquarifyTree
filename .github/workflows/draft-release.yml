@@ -30,5 +30,7 @@ jobs:
       - name: "cargo: Building for target ${{ matrix.os }}"
         run: cargo build --profile release
       - name: "Upload: Upload to release"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload v0.1.0 target/release/squarify_tree_rust --clobber
