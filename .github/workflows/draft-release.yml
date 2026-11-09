@@ -31,4 +31,4 @@ jobs:
         run: cargo build --profile release
       - name: "Upload: Upload to release"
         run: |
-          gh releasse upload v0.1.0 target/release/squarify_tree_rust --clobber
+          gh release upload v0.1.0 target/release/squarify_tree_rust --clobber
