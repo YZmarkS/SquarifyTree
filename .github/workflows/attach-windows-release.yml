@@ -1,5 +1,5 @@
-name: Draft Release
-run-name: Draft Release run name
+name: Attach Windows Release
+run-name: Attach Windows Build to Release
 on:
   workflow_dispatch:
     inputs:
