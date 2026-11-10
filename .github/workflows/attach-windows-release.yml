@@ -26,12 +26,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Cache
+        id: cache-cargo
         uses: actions/cache@v6
         with:
           path: |
+            ~/.cargo/bin
             ~/.cargo/registry
             ~/.cargo/git
-            target
+            target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: "cargo: Building for ${{ matrix.os }}"
         run: cargo build --profile release
@@ -39,4 +41,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ inputs.tag }} target/release/squarify_tree_rust.exe --clobber
+          cp target/release/treedu.exe treedu-{matrix.os}.exe
+          gh release upload ${{ inputs.tag }} treedu-{matrix.os}.exe --clobber
