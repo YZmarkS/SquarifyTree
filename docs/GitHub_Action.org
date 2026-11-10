@@ -1,0 +1,5 @@
+#+TITLE: GitHub Actions
+
+* Cache
+
+The [[https://github.com/actions/cache][official documentation of ~action/cache@v6~]] is broken. To store the cache results, one needs to add ~**/target~ to the path.
