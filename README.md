@@ -1,3 +1,22 @@
-# Untitled Disk Usage Visualization CLI
+# treedu.rs
 
-At root of project directory, run `cargo run -- [path/to/directory]` to scan directory
+A terminal disk usage visualization utility. 
+
+# Installation
+
+You may install the executable from the release page.
+
+# Usage
+
+To scan `[path/to/directory]`, run:
+```sh 
+treedu [path/to/directory]
+```
+
+## Build From Source
+
+```sh
+git clone [this-repository]
+cd treedu.rs
+cargo build --profile release
+```
