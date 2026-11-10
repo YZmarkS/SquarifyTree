@@ -1,16 +1,19 @@
-name: Draft Release
-run-name: Draft Release run name
+name: Attach Linux Release
+run-name: Attach Linux Build to Release
 on:
-  workflow_dispatch
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to attach to"
+        required: true
+        type: string
 
 jobs:
   build:
     strategy:
       matrix:
         os:
-          [ ubuntu-latest, ubuntu-24.04-arm,
-          windows-latest, windows-11-arm,
-          macos-latest, macos-15-intel ]
+          [ ubuntu-latest, ubuntu-24.04-arm ]
 
     runs-on: ${{ matrix.os }}
 
@@ -36,4 +39,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload v0.1.0 target/release/squarify_tree_rust --clobber
+          gh release upload ${{ inputs.tag }} target/release/squarify_tree_rust --clobber

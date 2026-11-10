@@ -1,0 +1,42 @@
+name: Draft Release
+run-name: Draft Release run name
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to attach to"
+        required: true
+        type: string
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os:
+          [ windows-latest, windows-11-arm ]
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: "Rustup: Checking toolchain"
+        run: rustup --version
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: "cargo: Building for ${{ matrix.os }}"
+        run: cargo build --profile release
+      - name: "Upload: Upload to release"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ inputs.tag }} target/release/squarify_tree_rust.exe --clobber
