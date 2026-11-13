@@ -16,27 +16,23 @@ const IEC_STEP_SIZE: u128 = 1024;
 impl State {
     pub fn render_display(
         &mut self,
-        info_bar: Rect,
+
         cells: &Vec<Cell>,
-        help_bar: Rect,
+
         buf: &mut Buffer,
     ) {
-        let [directory_block, file_name_block, file_info_block] =
-            Layout::horizontal(vec![Constraint::Fill(1); 3])
-                .spacing(Spacing::Overlap(1))
-                .areas(info_bar);
 
         self.render_info_bar(
-            directory_block,
-            file_name_block,
-            file_info_block,
+            self.draw_areas.directory_path_rect,
+            self.draw_areas.entry_name_rect,
+            self.draw_areas.entry_info_rect,
             &cells[self.now.selected],
             buf,
         );
 
         self.render_cells(cells, buf);
 
-        self.render_help_bar(help_bar, buf);
+        self.render_help_bar(self.draw_areas.help_rect, buf);
     }
 
     fn render_info_bar(
@@ -101,11 +97,7 @@ impl State {
     }
 
     pub fn render_scanning_modal(&self, buf: &mut Buffer) {
-        let modal_rect = if let Some(DrawAreas { modal_rect, .. }) = self.draw_areas {
-            modal_rect
-        } else {
-            panic!("Render: No modal box in state to render scanning modal")
-        };
+        let DrawAreas { modal_rect, .. } = self.draw_areas;
         let dots = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

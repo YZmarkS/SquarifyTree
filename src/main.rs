@@ -3,6 +3,7 @@ use std::env;
 use std::fs::symlink_metadata;
 use std::rc::Rc;
 use std::{io, path::Path};
+use ratatui::{layout::{Rect}};
 
 mod inode;
 mod layout;
@@ -17,6 +18,10 @@ use logic::*;
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let path = Path::new(args.get(1).unwrap()).canonicalize().unwrap();
+
+    if !symlink_metadata(&path).unwrap().is_dir() {
+	panic!("{:?} is not a directory", path);
+    }
 
     let worker_pool_size = 10;
 
@@ -39,7 +44,14 @@ fn main() -> io::Result<()> {
             selected: 0,
         },
 
-	draw_areas: None,
+        draw_areas: DrawAreas {
+            directory_path_rect: Rect::new(0, 0, 0, 0),
+            entry_name_rect: Rect::new(0, 0, 0, 0),
+            entry_info_rect: Rect::new(0, 0, 0, 0),
+            canvas: Rect::new(0, 0, 0, 0),
+            help_rect: Rect::new(0, 0, 0, 0),
+            modal_rect: Rect::new(0, 0, 0, 0),
+        },
     };
 
     ratatui::run(|terminal| state.main_loop(terminal)).unwrap();

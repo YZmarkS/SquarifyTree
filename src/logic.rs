@@ -8,9 +8,7 @@ use std::time::Duration;
 use std::{cell::RefCell, sync::*, thread};
 
 type CellIndex = usize;
-
-const YES: bool = true;
-const NO: bool = false;
+type Deleted = bool;
 
 #[derive(Clone)]
 pub struct HistoryEntry {
@@ -32,6 +30,11 @@ pub struct NewLayoutContext {
     pub help_bar: Rect,
 }
 
+pub enum DeleteChoice {
+    Yes,
+    No,
+}
+
 pub enum Status {
     Exit,
     Swapping,
@@ -46,10 +49,13 @@ pub enum Status {
         cells: Vec<Cell>,
         neighbours: Vec<Neighbours>,
     },
-    DeletionConfirmation(bool),
+    DeletionConfirmation {
+        choice: DeleteChoice,
+    },
     DeleteSelected,
     DeletingSelected {
-        deleted: Arc<RwLock<bool>>,
+        delete_status: Arc<RwLock<std::io::Result<Deleted>>>,
+        deleting_thread_handle: JoinHandle<()>,
     },
     DeletionFailed,
     DeletionCleanup,
@@ -74,7 +80,7 @@ pub struct State {
     pub history: Vec<HistoryEntry>,
     pub now: HistoryEntry,
 
-    pub draw_areas: Option<DrawAreas>,
+    pub draw_areas: DrawAreas,
 }
 
 impl State {
@@ -160,7 +166,7 @@ impl State {
             external forces or internally through app), the previously selected
             element becomes unavailable. Thus, it is crucial to recover from an
             inconsistent state after (re)scanning or file deletion.
-                 */
+             */
             ReturnToHeadOfCurrentDirectory => {
                 let curr_directory = self.now.directory.clone();
                 while self.history.last().is_some_and(|entry| {
@@ -186,9 +192,7 @@ impl State {
                     panic!("CalcNewLayout: Current inode is not a directory");
                 };
 
-                let Some(DrawAreas { canvas, .. }) = self.draw_areas else {
-                    panic!("CalcNewLayout: No draw areas to use");
-                };
+                let DrawAreas { canvas, .. } = self.draw_areas;
 
                 let squarify = squarify(
                     &children[self.now.starting_index..],
@@ -203,35 +207,52 @@ impl State {
                 Displaying { cells, neighbours }
             }
 
-            /* Delete Selected */
-            DeletionConfirmation(is_yes) => {
+            /* Delete Selected
+
+            Simple business logic, but many house keeping
+             */
+            DeletionConfirmation { choice } => {
+                use DeleteChoice::*;
+
                 let event = crossterm::event::read().unwrap();
 
                 match event {
                     Event::Key(KeyEvent { code, .. }) => match code {
-                        KeyCode::Enter => {
-                            if is_yes {
-                                DeleteSelected
-                            } else {
-                                DeletionConfirmation(is_yes)
+                        KeyCode::Enter => match choice {
+                            Yes => {
+                                todo!()
                             }
-                        }
-                        KeyCode::Left => DeletionConfirmation(YES),
-                        KeyCode::Right => DeletionConfirmation(NO),
-                        _ => DeletionConfirmation(is_yes),
+                            No => {
+                                todo!()
+                            }
+                        },
+                        KeyCode::Left => DeletionConfirmation { choice: Yes },
+                        KeyCode::Right => DeletionConfirmation { choice: No },
+                        _ => DeletionConfirmation { choice },
                     },
-                    _ => DeletionConfirmation(is_yes),
+                    _ => DeletionConfirmation { choice },
                 }
             }
             DeleteSelected => {
                 let index_in_directory = self.now.starting_index + self.now.selected;
                 todo!()
             }
-            DeletingSelected { deleted } => {
-                if *(deleted.read().unwrap()) {
-                    DeletionCleanup
-                } else {
-                    DeletingSelected { deleted }
+            DeletingSelected {
+                delete_status,
+                deleting_thread_handle,
+            } => {
+		let status = match *delete_status.read().unwrap() {
+		    Ok(x) => Ok(x),
+		    Err(_) => Err(()),
+		};
+
+                match status {
+                    Ok(false) => DeletingSelected {
+                        delete_status,
+                        deleting_thread_handle,
+                    },
+                    Ok(true) => DeletionCleanup,
+                    Err(_) => DeletionFailed,
                 }
             }
             DeletionFailed => {
