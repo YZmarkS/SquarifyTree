@@ -1,5 +1,5 @@
 use crate::{inode::*, layout::*, scanner::*, squarify::*};
-use crossterm::event::{Event, KeyCode, KeyEvent};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::Rect;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -42,7 +42,10 @@ pub enum Status {
     },
     ReturnToHeadOfCurrentDirectory,
     CalcNewLayout,
-    Displaying {cells: Vec<Cell>, neighbours: Vec<Neighbours> },
+    Displaying {
+        cells: Vec<Cell>,
+        neighbours: Vec<Neighbours>,
+    },
     DeletionConfirmation(bool),
     DeleteSelected,
     DeletingSelected {
@@ -178,18 +181,14 @@ impl State {
             While [crossterm] provides some interface for getting the terminal
             dimension, I want one source of truth, and is currently using the
              */
-            GetDrawAreas => {
-                panic!("GetCanvasSize: Status should not be possible after draw");
-            }
-
             CalcNewLayout => {
                 let InodeDetail::Dir(children) = &(self.now.directory.borrow().detail) else {
                     panic!("CalcNewLayout: Current inode is not a directory");
                 };
 
-		let Some(DrawAreas { canvas, .. }) = self.draw_areas else {
-		    panic!("CalcNewLayout: No draw areas to use");
-		};
+                let Some(DrawAreas { canvas, .. }) = self.draw_areas else {
+                    panic!("CalcNewLayout: No draw areas to use");
+                };
 
                 let squarify = squarify(
                     &children[self.now.starting_index..],
@@ -201,10 +200,7 @@ impl State {
                 let cells = make_cell_list(&rects, children, self.now.starting_index);
                 let neighbours = make_neighbours(&cells);
 
-                Displaying {
-                    cells,
-                    neighbours,
-                }
+                Displaying { cells, neighbours }
             }
 
             /* Delete Selected */
@@ -228,7 +224,8 @@ impl State {
                 }
             }
             DeleteSelected => {
-                let index_in_directory = self.now.starting_index + self.now.selected
+                let index_in_directory = self.now.starting_index + self.now.selected;
+                todo!()
             }
             DeletingSelected { deleted } => {
                 if *(deleted.read().unwrap()) {
@@ -251,80 +248,54 @@ impl State {
 
             The code is ugly but necessary.
              */
-            Displaying(DisplayingContext {
-                info_bar,
-                cells,
-                neighbours,
-                help_bar,
-            }) => {
+            Displaying { cells, neighbours } => {
                 let event = crossterm::event::read().unwrap();
                 match event {
-                    Event::Resize(_, _) => GetDrawAreas,
-                    Event::Key(key_event) => match &key_event.code {
-                        KeyCode::Up => {
-                            self.up(&neighbours);
-                            Displaying(DisplayingContext {
-                                info_bar,
-                                cells,
-                                neighbours,
-                                help_bar,
-                            })
+                    Event::Resize(_, _) => CalcNewLayout,
+                    /* Key Event Duplication
+
+                    Known [crossterm] issue. The default key press event is [Press].
+                    - Official documentation: https://docs.rs/crossterm/latest/crossterm/event/struct.KeyEvent.html#structfield.kind
+                    - Double key input on Windows: https://github.com/crossterm-rs/crossterm/issues/772
+                    - Proposal to make release event opt-in: https://github.com/crossterm-rs/crossterm/pull/778
+                     */
+                    Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                        match &key_event.code {
+                            KeyCode::Up => {
+                                self.up(&neighbours);
+                                Displaying { cells, neighbours }
+                            }
+                            KeyCode::Down => {
+                                self.down(&neighbours);
+                                Displaying { cells, neighbours }
+                            }
+                            KeyCode::Left => {
+                                self.left(&neighbours);
+                                Displaying { cells, neighbours }
+                            }
+                            KeyCode::Right => {
+                                self.right(&neighbours);
+                                Displaying { cells, neighbours }
+                            }
+                            KeyCode::Esc => {
+                                self.go_out();
+                                CalcNewLayout
+                            }
+                            KeyCode::Backspace => {
+                                self.go_out();
+                                CalcNewLayout
+                            }
+                            KeyCode::Enter => {
+                                self.go_in(&cells);
+                                CalcNewLayout
+                            }
+                            KeyCode::Char('r') => StartScanning,
+                            // KeyCode::Char('d') => ConfirmDeleteSelected,
+                            KeyCode::Char('q') => Exit,
+                            _ => Displaying { cells, neighbours },
                         }
-                        KeyCode::Down => {
-                            self.down(&neighbours);
-                            Displaying(DisplayingContext {
-                                info_bar,
-                                cells,
-                                neighbours,
-                                help_bar,
-                            })
-                        }
-                        KeyCode::Left => {
-                            self.left(&neighbours);
-                            Displaying(DisplayingContext {
-                                info_bar,
-                                cells,
-                                neighbours,
-                                help_bar,
-                            })
-                        }
-                        KeyCode::Right => {
-                            self.right(&neighbours);
-                            Displaying(DisplayingContext {
-                                info_bar,
-                                cells,
-                                neighbours,
-                                help_bar,
-                            })
-                        }
-                        KeyCode::Esc => {
-                            self.go_out();
-                            GetDrawAreas
-                        }
-                        KeyCode::Backspace => {
-                            self.go_out();
-                            GetDrawAreas
-                        }
-                        KeyCode::Enter => {
-                            self.go_in(&cells);
-                            GetDrawAreas
-                        }
-                        KeyCode::Char('r') => StartScanning,
-                        KeyCode::Char('d') => DeletionConfirmation(false),
-                        KeyCode::Char('q') => Exit,
-                        _ => Displaying(DisplayingContext {
-                            info_bar,
-                            cells,
-                            neighbours,
-                            help_bar,
-                        }),
-                    },
-                    _ => Displaying(DisplayingContext {
-                        info_bar,
-                        cells,
-                        neighbours,
-                        help_bar,
-                    }),
+                    }
+                    _ => Displaying { cells, neighbours },
                 }
             }
 

@@ -1,0 +1,45 @@
+name: Attach Linux Release
+run-name: Attach Linux Build to Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to attach to"
+        required: true
+        type: string
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os:
+          [ ubuntu-latest, ubuntu-24.04-arm ]
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: "Rustup: Checking toolchain"
+        run: rustup --version
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            **/target/
+          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: "cargo: Building for ${{ matrix.os }}"
+        run: cargo build --profile release
+      - name: "Upload: Upload to release"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp target/release/treedu treedu-${{ matrix.os }}
+          gh release upload ${{ inputs.tag }} treedu-${{ matrix.os }} --clobber
